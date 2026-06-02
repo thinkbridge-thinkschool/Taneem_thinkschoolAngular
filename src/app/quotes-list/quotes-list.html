@@ -4,10 +4,21 @@
   <header class="app-header">
     <h1 class="app-title">ThinkSchool Quotes</h1>
     <p class="app-subtitle">Ideas from the greatest minds, for curious learners</p>
+    <button class="btn-new-quote" (click)="toggleForm()" [attr.aria-expanded]="showForm()">
+      @if (showForm()) { ✕ Close } @else { + New Quote }
+    </button>
   </header>
 
   <!-- ── Main content ── -->
   <main class="main-content">
+
+    <!-- Create quote form — toggled by New Quote button -->
+    @if (showForm()) {
+      <app-quote-form
+        (created)="onQuoteCreated()"
+        (cancelled)="showForm.set(false)"
+      />
+    }
 
     <!-- Search bar -->
     <div class="search-bar">

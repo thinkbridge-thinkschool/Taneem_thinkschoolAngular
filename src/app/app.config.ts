@@ -2,11 +2,12 @@ import {
   ApplicationConfig,
   provideZonelessChangeDetection
 } from '@angular/core';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authInterceptor } from './auth.interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    provideZonelessChangeDetection(), // zoneless — signals drive change detection
-    provideHttpClient()
+    provideZonelessChangeDetection(),
+    provideHttpClient(withInterceptors([authInterceptor]))
   ]
 };

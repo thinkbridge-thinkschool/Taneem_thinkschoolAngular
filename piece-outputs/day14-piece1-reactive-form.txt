@@ -1,0 +1,308 @@
+Day 14 — Reactive forms + accessibility
+========================================
+
+## (1) Brief to the Agent
+
+Add a "Create a Quote" form to my existing Angular 21 standalone app.
+
+Real API endpoint: POST http://localhost:5150/api/quotes
+Request body: { "author": "string", "text": "string" }
+Constraints from Quote.Create() in the domain model:
+  - author: required, max 200 characters
+  - text:   required, max 1000 characters
+  - empty/whitespace values throw QuoteDomainException → 422
+
+What I want:
+- Reactive form using FormGroup and FormControl — not template-driven
+- Validators must match the real API constraints exactly:
+    author → Validators.required + Validators.maxLength(200)
+    text   → Validators.required + Validators.maxLength(1000)
+- Error messages shown only when field is touched and invalid
+- Full a11y wiring on every field:
+    <label for="..."> linked to input by id
+    aria-required="true"
+    aria-invalid="true" when field is invalid and touched
+    aria-describedby pointing to both the error span and the hint span
+    error span has role="alert" and id matching aria-describedby
+- On submit with invalid form: markAllAsTouched() then focus the first invalid field
+- Submitting state: button shows "Saving..." and is disabled, aria-busy="true"
+- Server error state: show a red banner for 401 (not logged in), 422 (rejected), 500 (unknown)
+- Success state: green banner "Quote created successfully!", form resets, list refreshes
+- Use inject() for the service — no constructor injection
+- No any types anywhere
+
+---
+
+## (2) Agent Output
+
+### src/app/quotes.service.ts (added method)
+  createQuote(author: string, text: string) {
+    return this.http.post<QuoteDetail>(`${this.baseUrl}/api/quotes`, { author, text });
+  }
+
+### src/app/quote-form/quote-form.ts
+import { Component, inject, signal, output, ElementRef, viewChild } from '@angular/core';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { QuotesService } from '../quotes.service';
+
+@Component({
+  selector: 'app-quote-form',
+  standalone: true,
+  imports: [ReactiveFormsModule],
+  templateUrl: './quote-form.html',
+  styleUrl: './quote-form.css'
+})
+export class QuoteForm {
+  private quotesService = inject(QuotesService);
+
+  authorInputRef = viewChild<ElementRef<HTMLInputElement>>('authorInput');
+  textInputRef   = viewChild<ElementRef<HTMLTextAreaElement>>('textInput');
+
+  created   = output<void>();
+  cancelled = output<void>();
+
+  submitting  = signal(false);
+  serverError = signal<string | null>(null);
+  success     = signal(false);
+
+  // Validators match Quote.Create() constraints exactly
+  form = new FormGroup({
+    author: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.maxLength(200)]
+    }),
+    text: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.maxLength(1000)]
+    })
+  });
+
+  get author() { return this.form.controls.author; }
+  get text()   { return this.form.controls.text; }
+
+  onSubmit() {
+    this.form.markAllAsTouched();
+    this.serverError.set(null);
+
+    if (this.form.invalid) {
+      // Focus first invalid field — keyboard and screen-reader users land on the error
+      if (this.author.invalid) {
+        this.authorInputRef()?.nativeElement.focus();
+      } else {
+        this.textInputRef()?.nativeElement.focus();
+      }
+      return;
+    }
+
+    this.submitting.set(true);
+    const { author, text } = this.form.getRawValue();
+
+    this.quotesService.createQuote(author, text).subscribe({
+      next: () => {
+        this.submitting.set(false);
+        this.success.set(true);
+        this.form.reset();
+        setTimeout(() => { this.success.set(false); this.created.emit(); }, 1500);
+      },
+      error: err => {
+        this.submitting.set(false);
+        if (err.status === 401) {
+          this.serverError.set('You must be logged in to create a quote.');
+        } else if (err.status === 422) {
+          this.serverError.set('The server rejected this quote — check author and text.');
+        } else {
+          this.serverError.set('Something went wrong. Please try again.');
+        }
+      }
+    });
+  }
+
+  onCancel() {
+    this.form.reset();
+    this.serverError.set(null);
+    this.success.set(false);
+    this.cancelled.emit();
+  }
+}
+
+### src/app/quote-form/quote-form.html
+<section class="form-panel" aria-labelledby="form-heading" role="region">
+  <h2 id="form-heading" class="form-title">Create a Quote</h2>
+
+  @if (success()) {
+    <div class="success-banner" role="status" aria-live="polite">
+      Quote created successfully!
+    </div>
+  }
+
+  @if (serverError()) {
+    <div class="error-banner" role="alert" aria-live="assertive">
+      {{ serverError() }}
+    </div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+
+    <div class="field-group">
+      <label class="field-label" for="author">
+        Author <span class="required-mark" aria-hidden="true">*</span>
+      </label>
+      <input
+        #authorInput
+        id="author"
+        class="field-input"
+        type="text"
+        formControlName="author"
+        autocomplete="off"
+        placeholder="e.g. Marcus Aurelius"
+        [attr.aria-invalid]="author.invalid && author.touched ? 'true' : null"
+        aria-describedby="author-error author-hint"
+        aria-required="true"
+      />
+      <span id="author-hint" class="field-hint">Max 200 characters</span>
+      @if (author.touched && author.errors) {
+        <span id="author-error" class="field-error" role="alert">
+          @if (author.errors['required']) { Author is required. }
+          @if (author.errors['maxlength']) {
+            Author must be 200 characters or fewer ({{ author.value.length }}/200).
+          }
+        </span>
+      }
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="quote-text">
+        Quote text <span class="required-mark" aria-hidden="true">*</span>
+      </label>
+      <textarea
+        #textInput
+        id="quote-text"
+        class="field-input field-textarea"
+        formControlName="text"
+        rows="5"
+        placeholder="Enter the full quote..."
+        [attr.aria-invalid]="text.invalid && text.touched ? 'true' : null"
+        aria-describedby="text-error text-hint"
+        aria-required="true"
+      ></textarea>
+      <span id="text-hint" class="field-hint">{{ text.value.length }}/1000 characters</span>
+      @if (text.touched && text.errors) {
+        <span id="text-error" class="field-error" role="alert">
+          @if (text.errors['required']) { Quote text is required. }
+          @if (text.errors['maxlength']) {
+            Quote text must be 1000 characters or fewer ({{ text.value.length }}/1000).
+          }
+        </span>
+      }
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-submit"
+        [disabled]="submitting()"
+        [attr.aria-busy]="submitting() ? 'true' : null">
+        @if (submitting()) { Saving... } @else { Save Quote }
+      </button>
+      <button type="button" class="btn-cancel"
+        (click)="onCancel()" [disabled]="submitting()">
+        Cancel
+      </button>
+    </div>
+
+  </form>
+</section>
+
+---
+
+## (3) Verification Log
+
+States exercised:
+
+  Empty state       — form opens with blank fields, no errors, no red borders ✅
+  Invalid state     — clicked Save Quote with empty fields:
+                      both fields turned red, error messages appeared,
+                      focus jumped automatically to Author field ✅
+  Maxlength author  — pasted 201 chars → "Author must be 200 characters or fewer (201/200)" ✅
+  Maxlength text    — pasted 1001 chars → "Quote text must be 1000 characters or fewer" ✅
+  Submitting state  — Slow 3G in DevTools → button showed "Saving..." and was disabled ✅
+  Server error 401  — submitted without token → "You must be logged in to create a quote" ✅
+  Success state     — submitted with valid token → green banner, form reset, list refreshed ✅
+  New quote search  — searched for new author name → appeared in results immediately ✅
+
+Keyboard path:
+  Tab → Author field
+  Tab → Text textarea
+  Tab → Save Quote button (Enter submits)
+  Tab → Cancel button (Enter cancels)
+  All controls reachable and operable without mouse ✅
+
+a11y wiring verified in DevTools Elements panel:
+  Author input has:
+    aria-required="true"
+    aria-describedby="author-error author-hint"
+    aria-invalid="true" (set only when field is invalid and touched)
+  Error span has:
+    id="author-error"
+    role="alert" (screen reader announces error immediately)
+  Same pattern on text field with id="quote-text", aria-describedby="text-error text-hint" ✅
+
+axe scan (WCAG 2.1 AA):
+  First scan — 2 serious violations found:
+    1. .stats-text color #777777 on background #f0f2f7 — contrast ratio 3.99:1 (needs 4.5:1)
+    2. .stats-right color #aaaaaa on background #f0f2f7 — contrast ratio 2.07:1 (needs 4.5:1)
+  Fixed: darkened both colors — #777 to #555 (~5.9:1), #aaa to #666 (~4.6:1)
+  Second scan — 0 violations ✅
+
+Bug caught and fixed — hardcoded search fetch size:
+
+  The agent fetched allQuotes with getSummary(1, 500) — a hardcoded limit.
+  The database had 520+ quotes. After creating a new quote (ID 1003), searching
+  for the new author returned zero results because the new quote was beyond
+  position 500 in the ID-ordered list. The stats bar also showed wrong total
+  pages (50 instead of 52) for the same reason.
+
+  Fixed: replaced hardcoded fetch with a dynamic paginator using RxJS expand + reduce.
+  It fetches 100 quotes at a time and keeps fetching until the page returns fewer
+  than 100 — meaning it reached the last page. No hardcoded total needed.
+
+  loadAllQuotes() now:
+    getSummary(page, 100).pipe(
+      expand(quotes => quotes.length < 100 ? EMPTY : getSummary(++page, 100)),
+      reduce((acc, quotes) => [...acc, ...quotes], [])
+    )
+
+Bug caught and fixed — search filter used includes instead of startsWith:
+
+  The agent filtered allQuotes using author.toLowerCase().includes(text).
+  Typing "t" returned every quote whose author name contained the letter "t"
+  anywhere — hundreds of results in random ID order. A newly created author
+  "Taneem" appeared nowhere near the top even though the name starts with "t".
+
+  Fixed: changed filter to author.toLowerCase().startsWith(text) and added
+  alphabetical sort within results.
+
+  filteredQuotes now:
+    this.allQuotes()
+      .filter(q => q.author.toLowerCase().startsWith(text))
+      .sort((a, b) => a.author.localeCompare(b.author))
+
+  Now typing "t" shows only authors whose name begins with "t", sorted A-Z.
+  Typing "ta" narrows to "ta...", "tan" to "tan..." — progressive filtering
+  that actually helps the user find who they are looking for.
+
+What would break if API contract changed:
+
+  - POST /api/quotes body field renamed (e.g. author → authorName)
+      -> form submits { author, text } but API expects { authorName, text }
+      -> 422 returned, server error banner shows — caught at runtime not compile time
+
+  - Max length tightened (e.g. author max reduced from 200 to 100)
+      -> frontend validator still allows 200 chars
+      -> 422 returned from server for 101-200 char authors — validator mismatch
+
+  - New required field added to POST body (e.g. category)
+      -> form has no category field, API returns 422
+      -> server error shows but user has no way to fill category in — form is broken
+
+  - text field renamed to quote or content
+      -> TypeScript catches this at compile time since QuoteDetail is typed — no any
+      -> build fails before it reaches production

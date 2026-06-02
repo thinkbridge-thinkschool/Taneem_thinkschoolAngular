@@ -29,4 +29,8 @@ export class QuotesService {
   getById(id: number) {
     return this.http.get<QuoteDetail>(`${this.baseUrl}/api/quotes/${id}`);
   }
+
+  createQuote(author: string, text: string) {
+    return this.http.post<QuoteDetail>(`${this.baseUrl}/api/quotes`, { author, text });
+  }
 }

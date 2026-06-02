@@ -29,6 +29,25 @@
   letter-spacing: 0.02em;
 }
 
+.btn-new-quote {
+  margin-top: 1rem;
+  background: rgba(255,255,255,0.2);
+  color: white;
+  border: 1.5px solid rgba(255,255,255,0.6);
+  padding: 0.5rem 1.25rem;
+  border-radius: 9px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-new-quote:hover { background: rgba(255,255,255,0.3); }
+.btn-new-quote:focus-visible {
+  outline: 3px solid white;
+  outline-offset: 2px;
+}
+
 /* ── Main content ── */
 .main-content {
   max-width: 720px;
@@ -105,7 +124,7 @@
   padding: 0 0.25rem;
   margin-bottom: 0.9rem;
   font-size: 0.85rem;
-  color: #777;
+  color: #555;
   min-height: 1.5rem;
 }
 
@@ -126,7 +145,7 @@
   border: 1px solid #bbf7d0;
 }
 
-.stats-right { color: #aaa; font-size: 0.82rem; }
+.stats-right { color: #666; font-size: 0.82rem; }
 
 /* ── Author breakdown chips ── */
 .author-breakdown {

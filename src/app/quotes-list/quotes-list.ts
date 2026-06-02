@@ -1,12 +1,14 @@
 import {
   Component, computed, effect, inject, signal, OnInit, viewChild, ElementRef
 } from '@angular/core';
+import { EMPTY, expand, reduce } from 'rxjs';
 import { Quote, QuoteDetail, QuotesService } from '../quotes.service';
+import { QuoteForm } from '../quote-form/quote-form';
 
 @Component({
   selector: 'app-quotes-list',
   standalone: true,
-  imports: [],
+  imports: [QuoteForm],
   templateUrl: './quotes-list.html',
   styleUrl: './quotes-list.css'
 })
@@ -45,6 +47,9 @@ export class QuotesList implements OnInit {
   // Signal 8 — current page within search results (client-side)
   searchPage = signal(1);
 
+  // Form toggle
+  showForm = signal(false);
+
   // Detail signals
   selectedId    = signal<number | null>(null);
   detail        = signal<QuoteDetail | null>(null);
@@ -57,14 +62,14 @@ export class QuotesList implements OnInit {
   // Computed — are we in search mode?
   isSearchMode = computed(() => this.filterText().trim().length > 0);
 
-  // Computed — all quotes matching the filter (full unsliced list)
+  // Computed — quotes where the author name STARTS WITH the search term
+  // sorted alphabetically within results
   filteredQuotes = computed(() => {
     if (this.isSearchMode()) {
       const text = this.filterText().toLowerCase();
-      return this.allQuotes().filter(q =>
-        q.author.toLowerCase().includes(text) ||
-        q.shortText.toLowerCase().includes(text)
-      );
+      return this.allQuotes()
+        .filter(q => q.author.toLowerCase().startsWith(text))
+        .sort((a, b) => a.author.localeCompare(b.author));
     }
     return this.browseQuotes();
   });
@@ -145,11 +150,23 @@ export class QuotesList implements OnInit {
     });
   }
 
-  // Fetches all quotes once — used for total page count and search filtering
+  // Fetches ALL quotes dynamically page by page until the API returns
+  // fewer items than the page size — no hardcoded total needed
   loadAllQuotes() {
     if (this.allQuotes().length > 0) return;
     this.searchLoading.set(true);
-    this.quotesService.getSummary(1, 500).subscribe({
+
+    const fetchSize = 100;
+    let currentPage = 1;
+
+    this.quotesService.getSummary(currentPage, fetchSize).pipe(
+      expand(quotes => {
+        if (quotes.length < fetchSize) return EMPTY; // last page reached
+        currentPage++;
+        return this.quotesService.getSummary(currentPage, fetchSize);
+      }),
+      reduce((acc, quotes) => [...acc, ...quotes], [] as Quote[])
+    ).subscribe({
       next: quotes => { this.allQuotes.set(quotes); this.searchLoading.set(false); },
       error: ()    => { this.searchLoading.set(false); }
     });
@@ -183,6 +200,16 @@ export class QuotesList implements OnInit {
 
   prevSearchPage() {
     if (this.searchPage() > 1) this.searchPage.update(p => p - 1);
+  }
+
+  toggleForm() { this.showForm.update(v => !v); }
+
+  onQuoteCreated() {
+    this.showForm.set(false);
+    this.page.set(1);
+    this.allQuotes.set([]); // bust cache so new quote appears in search
+    this.loadQuotes();
+    this.loadAllQuotes();
   }
 
   selectQuote(id: number) {
