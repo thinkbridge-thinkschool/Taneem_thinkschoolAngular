@@ -18,9 +18,13 @@ export class QuoteFormSignal {
   authorValue = signal('');
   textValue   = signal('');
 
-  // Touched signals — set on blur, used to show errors only after interaction
+  // Touched signals — set on blur
   authorTouched = signal(false);
   textTouched   = signal(false);
+
+  // Dirty signals — set as soon as user starts typing
+  authorDirty = signal(false);
+  textDirty   = signal(false);
 
   // UI state signals
   submitting  = signal(false);
@@ -45,13 +49,13 @@ export class QuoteFormSignal {
     return null;
   });
 
-  // Computed — show error only when touched or submit was attempted
+  // Computed — show error when touched, dirty, or submit was attempted
   showAuthorError = computed(() =>
-    (this.authorTouched() || this.submitAttempted()) && !!this.authorErrors()
+    (this.authorTouched() || this.authorDirty() || this.submitAttempted()) && !!this.authorErrors()
   );
 
   showTextError = computed(() =>
-    (this.textTouched() || this.submitAttempted()) && !!this.textErrors()
+    (this.textTouched() || this.textDirty() || this.submitAttempted()) && !!this.textErrors()
   );
 
   // Computed — form is valid when both fields have no errors
@@ -63,10 +67,12 @@ export class QuoteFormSignal {
 
   onAuthorInput(event: Event) {
     this.authorValue.set((event.target as HTMLInputElement).value);
+    this.authorDirty.set(true);
   }
 
   onTextInput(event: Event) {
     this.textValue.set((event.target as HTMLTextAreaElement).value);
+    this.textDirty.set(true);
   }
 
   onAuthorBlur() { this.authorTouched.set(true); }
@@ -96,6 +102,8 @@ export class QuoteFormSignal {
         this.textValue.set('');
         this.authorTouched.set(false);
         this.textTouched.set(false);
+        this.authorDirty.set(false);
+        this.textDirty.set(false);
         this.submitAttempted.set(false);
         setTimeout(() => { this.success.set(false); this.created.emit(); }, 1500);
       },
@@ -117,6 +125,8 @@ export class QuoteFormSignal {
     this.textValue.set('');
     this.authorTouched.set(false);
     this.textTouched.set(false);
+    this.authorDirty.set(false);
+    this.textDirty.set(false);
     this.submitAttempted.set(false);
     this.serverError.set(null);
     this.success.set(false);

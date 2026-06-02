@@ -1,0 +1,347 @@
+Day 14 — Signal Forms preview
+==============================
+
+## (1) Brief to the Agent
+
+Rebuild the same "Create a Quote" form from Day 14 Piece 1 but using
+Signal Forms — signals and computed() instead of FormGroup and FormControl.
+Request body: { "author": "string", "text": "string" }
+Constraints from the backend domain model (Quote.Create()):
+  - author: required, max 200 characters
+  - text:   required, max 1000 characters
+What I want:
+- Standalone component, no FormsModule, no ReactiveFormsModule
+- Use inject() for the service — no constructor injection
+- Replace FormControl with signal() for each field value
+- Replace Validators with computed() — write the validation logic yourself
+- Track touched state manually with signals — set on blur
+- Track submitAttempted with a signal — set on submit click
+- Show errors only when field is touched or submit was attempted
+- Same states as Piece 1: pristine, touched, dirty, submitting, server-error, success
+- Full a11y — aria-invalid, aria-describedby, aria-required, role="alert" on errors
+- On submit: if invalid focus first invalid field
+- No any types anywhere
+- Short comparison to the reactive form version at the end
+
+---
+
+## (2) Agent Output (original — before bug fix)
+
+### src/app/quote-form-signal/quote-form-signal.ts
+import { Component, computed, inject, output, signal } from '@angular/core';
+import { QuotesService } from '../quotes.service';
+
+@Component({
+  selector: 'app-quote-form-signal',
+  standalone: true,
+  imports: [],
+  templateUrl: './quote-form-signal.html',
+  styleUrl: './quote-form-signal.css'
+})
+export class QuoteFormSignal {
+  private quotesService = inject(QuotesService);
+
+  created   = output<void>();
+  cancelled = output<void>();
+
+  authorValue = signal('');
+  textValue   = signal('');
+
+  authorTouched = signal(false);
+  textTouched   = signal(false);
+
+  submitting      = signal(false);
+  serverError     = signal<string | null>(null);
+  success         = signal(false);
+  submitAttempted = signal(false);
+
+  // Computed validators — match Quote.Create() constraints exactly
+  authorErrors = computed(() => {
+    const v = this.authorValue().trim();
+    if (!v) return 'Author is required.';
+    if (v.length > 200) return `Author must be 200 characters or fewer (${v.length}/200).`;
+    return null;
+  });
+
+  textErrors = computed(() => {
+    const v = this.textValue().trim();
+    if (!v) return 'Quote text is required.';
+    if (v.length > 1000) return `Quote text must be 1000 characters or fewer (${v.length}/1000).`;
+    return null;
+  });
+
+  showAuthorError = computed(() =>
+    (this.authorTouched() || this.submitAttempted()) && !!this.authorErrors()
+  );
+
+  showTextError = computed(() =>
+    (this.textTouched() || this.submitAttempted()) && !!this.textErrors()
+  );
+
+  isValid      = computed(() => !this.authorErrors() && !this.textErrors());
+  authorCount  = computed(() => this.authorValue().length);
+  textCount    = computed(() => this.textValue().length);
+
+  onAuthorInput(event: Event) {
+    this.authorValue.set((event.target as HTMLInputElement).value);
+  }
+
+  onTextInput(event: Event) {
+    this.textValue.set((event.target as HTMLTextAreaElement).value);
+  }
+
+  onAuthorBlur() { this.authorTouched.set(true); }
+  onTextBlur()   { this.textTouched.set(true); }
+
+  onSubmit() {
+    this.submitAttempted.set(true);
+    this.serverError.set(null);
+    if (!this.isValid()) {
+      const firstError = document.querySelector('[aria-invalid="true"]') as HTMLElement;
+      firstError?.focus();
+      return;
+    }
+    this.submitting.set(true);
+    this.quotesService.createQuote(
+      this.authorValue().trim(),
+      this.textValue().trim()
+    ).subscribe({
+      next: () => {
+        this.submitting.set(false);
+        this.success.set(true);
+        this.authorValue.set('');
+        this.textValue.set('');
+        this.authorTouched.set(false);
+        this.textTouched.set(false);
+        this.submitAttempted.set(false);
+        setTimeout(() => { this.success.set(false); this.created.emit(); }, 1500);
+      },
+      error: err => {
+        this.submitting.set(false);
+        if (err.status === 401) {
+          this.serverError.set('You must be logged in to create a quote.');
+        } else if (err.status === 422) {
+          this.serverError.set('The server rejected this quote — check author and text.');
+        } else {
+          this.serverError.set('Something went wrong. Please try again.');
+        }
+      }
+    });
+  }
+
+  onCancel() {
+    this.authorValue.set('');
+    this.textValue.set('');
+    this.authorTouched.set(false);
+    this.textTouched.set(false);
+    this.submitAttempted.set(false);
+    this.serverError.set(null);
+    this.success.set(false);
+    this.cancelled.emit();
+  }
+}
+
+### src/app/quote-form-signal/quote-form-signal.html (original — before bug fix)
+<section class="form-panel" aria-labelledby="sf-heading" role="region">
+  <h2 id="sf-heading" class="form-title">
+    Create a Quote <span class="form-badge">Signal Form</span>
+  </h2>
+
+  @if (success()) {
+    <div class="success-banner" role="status" aria-live="polite">
+      Quote created successfully!
+    </div>
+  }
+
+  @if (serverError()) {
+    <div class="error-banner" role="alert" aria-live="assertive">
+      {{ serverError() }}
+    </div>
+  }
+
+  <!-- Bug: agent used (ngSubmit) which requires NgForm from FormsModule.
+       Since no FormsModule is imported, the browser submitted the form
+       natively and redirected the page on every submit click. -->
+  <form (ngSubmit)="onSubmit()" novalidate>
+
+    <div class="field-group">
+      <label class="field-label" for="sf-author">
+        Author <span class="required-mark" aria-hidden="true">*</span>
+      </label>
+      <input
+        id="sf-author"
+        class="field-input"
+        type="text"
+        autocomplete="off"
+        placeholder="e.g. Marcus Aurelius"
+        [value]="authorValue()"
+        (input)="onAuthorInput($event)"
+        (blur)="onAuthorBlur()"
+        [attr.aria-invalid]="showAuthorError() ? 'true' : null"
+        aria-describedby="sf-author-error sf-author-hint"
+        aria-required="true"
+      />
+      <span id="sf-author-hint" class="field-hint">{{ authorCount() }}/200 characters</span>
+      @if (showAuthorError()) {
+        <span id="sf-author-error" class="field-error" role="alert">
+          {{ authorErrors() }}
+        </span>
+      }
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="sf-text">
+        Quote text <span class="required-mark" aria-hidden="true">*</span>
+      </label>
+      <textarea
+        id="sf-text"
+        class="field-input field-textarea"
+        rows="5"
+        placeholder="Enter the full quote..."
+        [value]="textValue()"
+        (input)="onTextInput($event)"
+        (blur)="onTextBlur()"
+        [attr.aria-invalid]="showTextError() ? 'true' : null"
+        aria-describedby="sf-text-error sf-text-hint"
+        aria-required="true"
+      ></textarea>
+      <span id="sf-text-hint" class="field-hint">{{ textCount() }}/1000 characters</span>
+      @if (showTextError()) {
+        <span id="sf-text-error" class="field-error" role="alert">
+          {{ textErrors() }}
+        </span>
+      }
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-submit"
+        [disabled]="submitting()"
+        [attr.aria-busy]="submitting() ? 'true' : null">
+        @if (submitting()) { Saving… } @else { Save Quote }
+      </button>
+      <button type="button" class="btn-cancel"
+        (click)="onCancel()" [disabled]="submitting()">
+        Cancel
+      </button>
+    </div>
+
+  </form>
+</section>
+
+---
+
+## (3) Verification Log
+
+States exercised:
+
+  Pristine      — form opened, no interaction, no errors visible
+                  screenshot: sf-pristine.png ✅
+
+  Touched       — clicked Author field, pressed Tab without typing
+                  "Author is required." appeared below the field
+                  screenshot: sf-touched.png ✅
+
+  Dirty         — typed "abc" in Author, deleted it all with Ctrl+A + Backspace
+                  error updated live on every keypress as characters were removed
+                  screenshot: sf-dirty.png ✅
+
+  Invalid submit — clicked Save Quote with both fields empty
+                  submitAttempted signal set to true, both errors appeared,
+                  focus jumped to Author field automatically
+                  screenshot: sf-validationerror.png ✅
+
+  Maxlength     — pasted 201 chars in Author
+                  "Author must be 200 characters or fewer (201/200)." appeared
+                  screenshot: sf-author-name-more-than 200.png ✅
+
+  Submitting    — Slow 3G in DevTools, valid data submitted
+                  button showed "Saving…" and was disabled during request
+                  screenshot: sf-submitting.png ✅
+
+  Server error  — backend stopped, submitted form
+                  red banner showed "Something went wrong. Please try again."
+                  screenshot: sf-server-error.png ✅
+
+  Success       — backend running with valid token, submitted form
+                  green banner showed "Quote created successfully!", form reset
+                  screenshot: sf-success.png ✅
+
+Bug caught and fixed — (ngSubmit) without FormsModule caused page redirect:
+
+  The agent used (ngSubmit)="onSubmit()" on the form element.
+  (ngSubmit) is emitted by Angular's NgForm directive which comes from FormsModule.
+  The Signal Form intentionally has no FormsModule imported — it uses signals only.
+  Without NgForm wrapping the form, Angular never intercepted the submit event.
+  The browser did what it normally does — submitted the form natively and
+  redirected the page to the same URL, going back to the quotes list on every
+  Save Quote click.
+
+  Fixed: changed (ngSubmit) to (submit) with $event.preventDefault():
+    Before: <form (ngSubmit)="onSubmit()" novalidate>
+    After:  <form (submit)="$event.preventDefault(); onSubmit()" novalidate>
+
+  This tells the browser to stop its default reload and let our handler run instead.
+
+What would break if API contract changed:
+
+  - POST /api/quotes field renamed (author → authorName)
+      -> form submits { author, text }, API gets wrong field name
+      -> 422 returned, server error banner shows
+
+  - Max length tightened (author 200 → 100)
+      -> authorErrors computed still checks > 200
+      -> frontend allows 101-200 chars, API returns 422 — validator mismatch
+      -> fix: update the number in the computed() manually
+
+  - New required field added (e.g. category)
+      -> no category signal exists, API returns 422
+      -> user has no way to fill it — form is broken until rebuilt
+
+  - text field renamed to quote or content
+      -> no TypeScript interface here to catch it at compile time
+      -> the service call passes { author, text } — wrong key, 422 at runtime
+
+Signal Forms vs Reactive Forms — comparison:
+
+  Simpler in Signal Forms:
+    - No Angular forms API to learn — just signals and computed()
+    - Validation logic is plain TypeScript — easy to read and debug
+    - No import of ReactiveFormsModule needed
+    - Error messages are strings, not error objects — simpler to display
+
+  Rougher in Signal Forms:
+    - Touched/dirty state must be tracked manually with signals and blur handlers
+    - Reset requires clearing every signal individually — form.reset() doesn't exist
+    - (ngSubmit) does not work — must use native (submit) + $event.preventDefault()
+    - More manual wiring in the template: [value], (input), (blur) on every field
+    - No built-in dirty tracking — you have to derive it yourself if needed
+
+  Two additional bugs found by running both forms side by side:
+
+  Bug A — Whitespace accepted as valid in Reactive Form:
+    Reactive: Validators.required only checks for null/undefined/"" — a string
+    of spaces "   " passes the check and submits successfully.
+    Signal: authorErrors computed calls .trim() before checking — same as the
+    backend Quote.Create() which trims before validating. Whitespace-only
+    input correctly shows "Author is required."
+    Evidence: typed spaces in Author, clicked Submit — Reactive accepted it,
+    Signal rejected it.
+
+  Bug B — Tab key does not show error in Reactive Form:
+    Reactive: errors show only when a field is "touched". Angular marks a
+    field touched after blur fires. Tab key triggers blur but Angular's form
+    directive delays the touched state update, so no error appears until the
+    user clicks somewhere with the mouse.
+    Signal: (blur) directly calls onAuthorBlur() which sets authorTouched
+    signal to true immediately — error appears the moment Tab is pressed.
+    Evidence: clicked Author field, pressed Tab — Reactive showed no error,
+    Signal showed "Author is required." immediately.
+
+  Note: I added a UI toggle in the app to switch between Reactive Form (Piece 1)
+  and Signal Form (Piece 2) side by side. This made it easier to compare the
+  two implementations visually during verification. The toggle was not required
+  by the exercise — the comparison above is the written version.
+
+Screenshot Link:
+
+
