@@ -3,38 +3,75 @@ Day 14 — Reactive forms + accessibility
 
 ## (1) Brief to the Agent
 
-Add a "Create a Quote" form to my existing Angular 21 standalone app.
+I have an Angular 21 standalone app and I want to add a "Create Quote" form.
+Use this API to create a quote:
+POST http://localhost:5150/api/quotes
+Request body:
+{
+  "author": "string",
+  "text": "string"
+}
+Validation Rules
+The form validation should match the backend exactly:
+Author : Required, Maximum 200 characters
+Text: Required, Maximum 1000 characters
 
-Real API endpoint: POST http://localhost:5150/api/quotes
-Request body: { "author": "string", "text": "string" }
-Constraints from Quote.Create() in the domain model:
-  - author: required, max 200 characters
-  - text:   required, max 1000 characters
-  - empty/whitespace values throw QuoteDomainException → 422
+Use:
+Validators.required
+Validators.maxLength(...)
+Form Requirements
+Use Reactive Forms (FormGroup and FormControl)
+Do not use template-driven forms
+Show validation errors only after the user has touched a field and it is invalid
+Accessibility (A11y)
 
-What I want:
-- Reactive form using FormGroup and FormControl — not template-driven
-- Validators must match the real API constraints exactly:
-    author → Validators.required + Validators.maxLength(200)
-    text   → Validators.required + Validators.maxLength(1000)
-- Error messages shown only when field is touched and invalid
-- Full a11y wiring on every field:
-    <label for="..."> linked to input by id
-    aria-required="true"
-    aria-invalid="true" when field is invalid and touched
-    aria-describedby pointing to both the error span and the hint span
-    error span has role="alert" and id matching aria-describedby
-- On submit with invalid form: markAllAsTouched() then focus the first invalid field
-- Submitting state: button shows "Saving..." and is disabled, aria-busy="true"
-- Server error state: show a red banner for 401 (not logged in), 422 (rejected), 500 (unknown)
-- Success state: green banner "Quote created successfully!", form resets, list refreshes
-- Use inject() for the service — no constructor injection
-- No any types anywhere
+For every field:
+Connect <label> and input using for and id
+Add aria-required="true"
+Add aria-invalid="true" when the field is touched and invalid
+Use aria-describedby to reference both:
+the hint text
+the validation error message
+Validation error elements should:
+have a unique id
+use role="alert"
+Submit Behavior
+
+When the user clicks Submit:
+If the form is invalid:
+call markAllAsTouched()
+automatically focus the first invalid field
+If the form is valid:
+send the POST request
+Loading State
+
+While the request is being sent:
+Disable the submit button
+Show the text:
+Saving...
+Add:
+aria-busy="true"
+Error Handling
+
+Show a red error banner for:
+401 → User is not logged in
+422 → Quote rejected by the server
+500 → Unknown server error
+Success Handling
+
+After a successful save:
+Show a green success banner:
+Quote created successfully!
+Reset the form
+Refresh the quote list
+Angular Requirements
+Use inject() for dependency injection
+Do not use constructor injection
+Do not use any types anywhere in the code
 
 ---
 
 ## (2) Agent Output
-
 ### src/app/quotes.service.ts (added method)
   createQuote(author: string, text: string) {
     return this.http.post<QuoteDetail>(`${this.baseUrl}/api/quotes`, { author, text });
@@ -254,7 +291,7 @@ axe scan (WCAG 2.1 AA):
 
 Bug caught and fixed — hardcoded search fetch size:
 
-  The agent fetched allQuotes with getSummary(1, 500) — a hardcoded limit.
+  1) The agent fetched allQuotes with getSummary(1, 500) — a hardcoded limit.
   The database had 520+ quotes. After creating a new quote (ID 1003), searching
   for the new author returned zero results because the new quote was beyond
   position 500 in the ID-ordered list. The stats bar also showed wrong total
@@ -272,7 +309,7 @@ Bug caught and fixed — hardcoded search fetch size:
 
 Bug caught and fixed — search filter used includes instead of startsWith:
 
-  The agent filtered allQuotes using author.toLowerCase().includes(text).
+  2) The agent filtered allQuotes using author.toLowerCase().includes(text).
   Typing "t" returned every quote whose author name contained the letter "t"
   anywhere — hundreds of results in random ID order. A newly created author
   "Taneem" appeared nowhere near the top even though the name starts with "t".
@@ -299,10 +336,8 @@ What would break if API contract changed:
       -> frontend validator still allows 200 chars
       -> 422 returned from server for 101-200 char authors — validator mismatch
 
-  - New required field added to POST body (e.g. category)
-      -> form has no category field, API returns 422
-      -> server error shows but user has no way to fill category in — form is broken
+Screenshot Link :
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day14/screenshots/day14piece1
 
-  - text field renamed to quote or content
-      -> TypeScript catches this at compile time since QuoteDetail is typed — no any
-      -> build fails before it reaches production
+CI run :
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/actions/runs/26811290259
