@@ -4,11 +4,12 @@ import {
 import { EMPTY, expand, reduce } from 'rxjs';
 import { Quote, QuoteDetail, QuotesService } from '../quotes.service';
 import { QuoteForm } from '../quote-form/quote-form';
+import { QuoteFormSignal } from '../quote-form-signal/quote-form-signal';
 
 @Component({
   selector: 'app-quotes-list',
   standalone: true,
-  imports: [QuoteForm],
+  imports: [QuoteForm, QuoteFormSignal],
   templateUrl: './quotes-list.html',
   styleUrl: './quotes-list.css'
 })
@@ -48,7 +49,8 @@ export class QuotesList implements OnInit {
   searchPage = signal(1);
 
   // Form toggle
-  showForm = signal(false);
+  showForm  = signal(false);
+  formMode  = signal<'reactive' | 'signal'>('reactive');
 
   // Detail signals
   selectedId    = signal<number | null>(null);

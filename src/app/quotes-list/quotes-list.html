@@ -14,10 +14,30 @@
 
     <!-- Create quote form — toggled by New Quote button -->
     @if (showForm()) {
-      <app-quote-form
-        (created)="onQuoteCreated()"
-        (cancelled)="showForm.set(false)"
-      />
+      <div class="form-mode-toggle">
+        <button
+          class="mode-btn"
+          [class.active]="formMode() === 'reactive'"
+          (click)="formMode.set('reactive')"
+        >Reactive Form</button>
+        <button
+          class="mode-btn"
+          [class.active]="formMode() === 'signal'"
+          (click)="formMode.set('signal')"
+        >Signal Form</button>
+      </div>
+
+      @if (formMode() === 'reactive') {
+        <app-quote-form
+          (created)="onQuoteCreated()"
+          (cancelled)="showForm.set(false)"
+        />
+      } @else {
+        <app-quote-form-signal
+          (created)="onQuoteCreated()"
+          (cancelled)="showForm.set(false)"
+        />
+      }
     }
 
     <!-- Search bar -->

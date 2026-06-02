@@ -1,0 +1,90 @@
+<section class="form-panel" aria-labelledby="sf-heading" role="region">
+  <h2 id="sf-heading" class="form-title">Create a Quote <span class="form-badge">Signal Form</span></h2>
+
+  @if (success()) {
+    <div class="success-banner" role="status" aria-live="polite">
+      Quote created successfully!
+    </div>
+  }
+
+  @if (serverError()) {
+    <div class="error-banner" role="alert" aria-live="assertive">
+      {{ serverError() }}
+    </div>
+  }
+
+  <form (submit)="$event.preventDefault(); onSubmit()" novalidate>
+
+    <!-- Author field -->
+    <div class="field-group">
+      <label class="field-label" for="sf-author">
+        Author <span class="required-mark" aria-hidden="true">*</span>
+      </label>
+      <input
+        id="sf-author"
+        class="field-input"
+        type="text"
+        autocomplete="off"
+        placeholder="e.g. Marcus Aurelius"
+        [value]="authorValue()"
+        (input)="onAuthorInput($event)"
+        (blur)="onAuthorBlur()"
+        [attr.aria-invalid]="showAuthorError() ? 'true' : null"
+        aria-describedby="sf-author-error sf-author-hint"
+        aria-required="true"
+      />
+      <span id="sf-author-hint" class="field-hint">{{ authorCount() }}/200 characters</span>
+      @if (showAuthorError()) {
+        <span id="sf-author-error" class="field-error" role="alert">
+          {{ authorErrors() }}
+        </span>
+      }
+    </div>
+
+    <!-- Text field -->
+    <div class="field-group">
+      <label class="field-label" for="sf-text">
+        Quote text <span class="required-mark" aria-hidden="true">*</span>
+      </label>
+      <textarea
+        id="sf-text"
+        class="field-input field-textarea"
+        rows="5"
+        placeholder="Enter the full quote..."
+        [value]="textValue()"
+        (input)="onTextInput($event)"
+        (blur)="onTextBlur()"
+        [attr.aria-invalid]="showTextError() ? 'true' : null"
+        aria-describedby="sf-text-error sf-text-hint"
+        aria-required="true"
+      ></textarea>
+      <span id="sf-text-hint" class="field-hint">{{ textCount() }}/1000 characters</span>
+      @if (showTextError()) {
+        <span id="sf-text-error" class="field-error" role="alert">
+          {{ textErrors() }}
+        </span>
+      }
+    </div>
+
+    <!-- Actions -->
+    <div class="form-actions">
+      <button
+        type="submit"
+        class="btn-submit"
+        [disabled]="submitting()"
+        [attr.aria-busy]="submitting() ? 'true' : null"
+      >
+        @if (submitting()) { Saving… } @else { Save Quote }
+      </button>
+      <button
+        type="button"
+        class="btn-cancel"
+        (click)="onCancel()"
+        [disabled]="submitting()"
+      >
+        Cancel
+      </button>
+    </div>
+
+  </form>
+</section>
