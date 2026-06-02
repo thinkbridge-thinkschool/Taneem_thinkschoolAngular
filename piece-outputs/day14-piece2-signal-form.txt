@@ -342,6 +342,20 @@ Signal Forms vs Reactive Forms — comparison:
   two implementations visually during verification. The toggle was not required
   by the exercise — the comparison above is the written version.
 
+  Note:
+  Following the reviewer feedback on Day 13 Piece 1 ("claims to have solved edge
+  cases but provides no verification log, test run, or screenshot proving those
+  states were exercised"), the missing screenshots for Day 13 Piece 1 have been
+  added to the repository on branch day13Piece1-signals-zoneless:
+    - NoQuotesFound.png     — filter showing 0 results (empty state)
+    - PageLoading.png       — null totalBrowsePages before background fetch completes
+    - TotalPagesLoaded.png  — "Page 1 of 53" after background fetch completes
+    - Pagination1.png       — page 1 with Prev disabled, Next enabled
+    - Pagination2.png       — page 2 after clicking Next
+
+
 Screenshot Link:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day14/screenshots/day14piece2
+
 
 
