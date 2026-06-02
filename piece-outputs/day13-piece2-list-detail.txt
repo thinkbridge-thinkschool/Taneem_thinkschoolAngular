@@ -4,14 +4,11 @@ Day 13 — A real component from a spec
 ## (1) Brief to the Agent
 
 Add a list and detail view to my existing Angular 21 standalone app.
-
 Real API endpoints:
   List:   GET http://localhost:5150/api/quotes/summary?page=1&size=10
           Fields: id (number), author (string), authorInitials (string), shortText (string)
-
   Detail: GET http://localhost:5150/api/quotes/{id}
           Fields: id (number), author (string), text (string) — full text, not shortText
-
 What I want:
 - Keep the existing list component — just make each card clickable
 - When a quote is clicked, fetch the full quote from GET /api/quotes/{id}
@@ -450,3 +447,11 @@ What would break if API contract changed:
       -> HTTP error triggers detailError, Retry shows
       -> but error message says "Check your connection" which is misleading for a 401
       -> real fix would read the HTTP status and show "Not authorized" for 401
+
+Screenshots Link:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day13Piece1-signals-zoneless/screenshots/day13piece2
+
+CI run:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/actions/runs/26800241006
+
+
