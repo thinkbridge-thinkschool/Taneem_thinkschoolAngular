@@ -408,8 +408,6 @@ What zoneless changes about change detection:
 
 
 Screenshots Link:
-https://github.com/Taneem110/Taneem_thinkschoolAngular/tree/day13Piece1-signals-zoneless/screenshots/day13piece1
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day13Piece1-signals-zoneless/screenshots/day13piece1
 
-CI Run:
-https://github.com/Taneem110/Taneem_thinkschoolAngular/actions/runs/26758518065
 
