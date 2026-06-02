@@ -1,46 +1,195 @@
-<div class="quotes-container">
-  <h1>Quotes</h1>
+<div class="page-wrapper">
 
-  <!-- Filter input — updates filterText signal -->
-  <div class="filter-bar">
-    <input
-      type="text"
-      placeholder="Filter by author..."
-      (input)="onFilterChange($event)"
-    />
-    <!-- Computed value displayed — updates automatically when signals change -->
-    <span class="count">{{ displayCount() }} quotes</span>
-  </div>
+  <!-- ── Header ── -->
+  <header class="app-header">
+    <h1 class="app-title">ThinkSchool Quotes</h1>
+    <p class="app-subtitle">Ideas from the greatest minds, for curious learners</p>
+  </header>
 
-  <!-- Loading state -->
-  @if (loading()) {
-    <p class="loading">Loading...</p>
-  }
+  <!-- ── Main content ── -->
+  <main class="main-content">
 
-  <!-- Empty state — uses isEmpty computed signal -->
-  @if (!loading() && isEmpty()) {
-    <p class="empty">No quotes found for "{{ filterText() }}"</p>
-  }
-
-  <!-- Quotes list — @for with track for performance -->
-  @if (!loading() && !isEmpty()) {
-    <ul class="quotes-list">
-      @for (quote of filteredQuotes(); track quote.id) {
-        <li class="quote-card">
-          <div class="author-badge">{{ quote.authorInitials }}</div>
-          <div class="quote-content">
-            <strong class="author-name">{{ quote.author }}</strong>
-            <p class="short-text">{{ quote.shortText }}</p>
-          </div>
-        </li>
+    <!-- Search bar -->
+    <div class="search-bar">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input
+        #searchInput
+        class="search-input"
+        type="text"
+        placeholder="Search by author or quote..."
+        (input)="onFilterChange($event)"
+      />
+      @if (isSearchMode()) {
+        <button class="clear-btn" (click)="clearFilter()" title="Clear search">✕</button>
       }
-    </ul>
-  }
+    </div>
 
-  <!-- Pagination -->
-  <div class="pagination">
-    <button (click)="prevPage()" [disabled]="page() === 1">← Prev</button>
-    <span>Page {{ page() }}</span>
-    <button (click)="nextPage()">Next →</button>
-  </div>
+    <!-- Stats bar -->
+    <div class="stats-bar">
+      @if (isSearchMode()) {
+        <span class="stats-text">
+          @if (searchLoading()) {
+            <span class="loading-text">Searching across all quotes…</span>
+          } @else {
+            <strong>{{ totalFilteredCount() }}</strong> result{{ totalFilteredCount() === 1 ? '' : 's' }}
+            for "<em>{{ filterText() }}</em>"
+          }
+        </span>
+      } @else {
+        <span class="stats-text">
+          Page <strong>{{ page() }}</strong>
+          @if (totalBrowsePages()) {
+            of <strong>{{ totalBrowsePages() }}</strong>
+          }
+          @if (isLastPage()) {
+            <span class="last-page-tag">Last page</span>
+          }
+        </span>
+        <span class="stats-right">{{ displayCount() }} quotes on this page</span>
+      }
+    </div>
+
+    <!-- Author breakdown (search mode only) -->
+    @if (isSearchMode() && authorStats().length > 0) {
+      <div class="author-breakdown">
+        @for (stat of authorStats(); track stat.author) {
+          <span class="author-chip" [style.background]="authorColor(stat.author)">
+            {{ stat.author }}
+            <span class="chip-count">{{ stat.count }}</span>
+          </span>
+        }
+      </div>
+    }
+
+    <!-- Loading skeleton -->
+    @if (loading() || searchLoading()) {
+      <div class="skeleton-list">
+        @for (n of [1, 2, 3, 4, 5]; track n) {
+          <div class="skeleton-card">
+            <div class="skeleton-avatar"></div>
+            <div class="skeleton-body">
+              <div class="skeleton-line short"></div>
+              <div class="skeleton-line long"></div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Browse error — backend is down -->
+    @if (browseError() && !loading()) {
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <p class="empty-title">Could not load quotes</p>
+        <p class="empty-sub">{{ browseError() }}</p>
+        <button class="reset-btn" (click)="loadQuotes()">Retry</button>
+      </div>
+    }
+
+    <!-- Empty state — search returned nothing -->
+    @if (isEmpty() && !browseError()) {
+      <div class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <p class="empty-title">No quotes found</p>
+        <p class="empty-sub">No results for "<em>{{ filterText() }}</em>" — try a different term</p>
+        <button class="reset-btn" (click)="clearFilter()">Clear search</button>
+      </div>
+    }
+
+    <!-- Quotes list -->
+    @if (!loading() && !searchLoading() && !isEmpty()) {
+      <ul class="quotes-list">
+        @for (quote of visibleQuotes(); track quote.id) {
+          <li
+            class="quote-card"
+            [class.selected]="selectedId() === quote.id"
+            [style.--accent]="authorColor(quote.author)"
+            (click)="selectQuote(quote.id)"
+          >
+            <div class="author-badge" [style.background]="authorColor(quote.author)">
+              {{ quote.authorInitials }}
+            </div>
+            <div class="quote-content">
+              <strong class="author-name">{{ quote.author }}</strong>
+              <p class="short-text">"{{ quote.shortText }}"</p>
+            </div>
+            <span class="card-arrow">›</span>
+          </li>
+        }
+      </ul>
+    }
+
+    <!-- Pagination — browse mode (API-driven) -->
+    @if (!isSearchMode() && !loading()) {
+      <div class="pagination">
+        <button class="page-btn" (click)="prevPage()" [disabled]="page() === 1">
+          ← Prev
+        </button>
+        <span class="page-indicator">
+          Page <strong>{{ page() }}</strong>
+          @if (isLastPage()) { · Last page }
+        </span>
+        <button class="page-btn" (click)="nextPage()" [disabled]="isLastPage()">
+          Next →
+        </button>
+      </div>
+    }
+
+    <!-- Pagination — search mode (client-side slice) -->
+    @if (isSearchMode() && !searchLoading() && totalSearchPages() > 1) {
+      <div class="pagination">
+        <button class="page-btn" (click)="prevSearchPage()" [disabled]="searchPage() === 1">
+          ← Prev
+        </button>
+        <span class="page-indicator">
+          Page <strong>{{ searchPage() }}</strong> of <strong>{{ totalSearchPages() }}</strong>
+        </span>
+        <button class="page-btn" (click)="nextSearchPage()" [disabled]="searchPage() === totalSearchPages()">
+          Next →
+        </button>
+      </div>
+    }
+
+  </main>
 </div>
+
+<!-- ── Detail panel — slides in when a quote is selected ── -->
+@if (selectedId() !== null) {
+  <div class="detail-overlay" (click)="closeDetail()"></div>
+  <aside class="detail-panel">
+    <button class="detail-close" (click)="closeDetail()">✕</button>
+
+    @if (detailLoading()) {
+      <div class="detail-skeleton">
+        <div class="ds-avatar"></div>
+        <div class="ds-lines">
+          <div class="ds-line short"></div>
+          <div class="ds-line long"></div>
+          <div class="ds-line long"></div>
+          <div class="ds-line medium"></div>
+        </div>
+      </div>
+    }
+
+    @if (detailError()) {
+      <div class="detail-error">
+        <p class="error-icon">⚠️</p>
+        <p class="error-msg">{{ detailError() }}</p>
+        <button class="retry-btn" (click)="selectQuote(selectedId()!)">Retry</button>
+      </div>
+    }
+
+    @if (!detailLoading() && !detailError() && detail()) {
+      <div class="detail-content">
+        <div class="detail-badge" [style.background]="authorColor(detail()!.author)">
+          {{ detail()!.author[0] }}
+        </div>
+        <h2 class="detail-author">{{ detail()!.author }}</h2>
+        <blockquote class="detail-text">"{{ detail()!.text }}"</blockquote>
+        <p class="detail-id">Quote #{{ detail()!.id }}</p>
+      </div>
+    }
+  </aside>
+}

@@ -3,21 +3,23 @@ Day 13 — Signals + Zoneless + Standalone
 
 ## (1) Brief to the Agent
 
-Build a standalone Angular 21 app (no NgModules) against my Week-1 Quotes API.
+Build a simple Angular 21 app that fetches quotes from my backend API and shows them in a list.
 
-Real endpoint: GET http://localhost:5150/api/quotes/summary?page={page}&size={size}
-Real field names: id (number), author (string), authorInitials (string), shortText (string)
+My API: GET http://localhost:5150/api/quotes/summary?page=1&size=10
+Each quote has: id, author, authorInitials, shortText
 
-Requirements:
-- provideZonelessChangeDetection() in app.config.ts — no Zone.js
-- inject() everywhere, no constructor injection
-- Four signal()s: quotes, filterText, page, loading
-- Two computed()s derived from multiple signals:
-    filteredQuotes — derives from quotes + filterText
-    displayCount   — derives from filteredQuotes
-- One effect() that logs filter state whenever signals change
-- New control flow: @if for loading/empty/list states, @for with track quote.id
-- Filter input that updates filterText signal; list re-renders without manual trigger
+What I want:
+- No NgModules — use standalone components only
+- Use inject() to get services, not constructor
+- Store state in signals: one for the quotes list, one for filter text the user types,
+  one for the current page, one for loading state
+- Create a computed value that filters quotes by author using both the quotes signal
+  and the filter signal
+- Show a count of filtered quotes using another computed
+- Add an effect that logs to the console whenever the filter changes
+- Use @if to show loading and empty states, @for to loop through quotes (with track quote.id)
+- When the user types in a search box, the list should update automatically
+  without any manual refresh
 
 ---
 
@@ -61,7 +63,9 @@ export class QuotesService {
 }
 
 ### src/app/quotes-list/quotes-list.ts
-import { Component, computed, effect, inject, signal, OnInit } from '@angular/core';
+import {
+  Component, computed, effect, inject, signal, OnInit, viewChild, ElementRef
+} from '@angular/core';
 import { Quote, QuotesService } from '../quotes.service';
 
 @Component({
@@ -74,79 +78,262 @@ import { Quote, QuotesService } from '../quotes.service';
 export class QuotesList implements OnInit {
   private quotesService = inject(QuotesService);
 
-  quotes     = signal<Quote[]>([]);
-  filterText = signal('');
-  page       = signal(1);
-  loading    = signal(false);
+  searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
-  filteredQuotes = computed(() =>
-    this.quotes().filter(q =>
-      q.author.toLowerCase().includes(this.filterText().toLowerCase())
-    )
+  readonly pageSize = 10;
+
+  // Signal 1 — paginated quotes for browse mode
+  browseQuotes = signal<Quote[]>([]);
+
+  // Signal 2 — all quotes loaded once for search mode
+  allQuotes = signal<Quote[]>([]);
+
+  // Signal 3 — user's filter input
+  filterText = signal('');
+
+  // Signal 4 — current page number
+  page = signal(1);
+
+  // Signal 5 — loading state (browse)
+  loading = signal(false);
+
+  // Signal 6 — loading state (search)
+  searchLoading = signal(false);
+
+  // Signal 7 — true when page returned fewer items than pageSize
+  isLastPage = signal(false);
+
+  // Signal 8 — current page within search results (client-side)
+  searchPage = signal(1);
+
+  // Computed — are we in search mode?
+  isSearchMode = computed(() => this.filterText().trim().length > 0);
+
+  // Computed — all quotes matching the filter (derived from allQuotes + filterText)
+  filteredQuotes = computed(() => {
+    if (this.isSearchMode()) {
+      const text = this.filterText().toLowerCase();
+      return this.allQuotes().filter(q =>
+        q.author.toLowerCase().includes(text) ||
+        q.shortText.toLowerCase().includes(text)
+      );
+    }
+    return this.browseQuotes();
+  });
+
+  // Computed — total search result count (derived from filteredQuotes)
+  totalFilteredCount = computed(() => this.filteredQuotes().length);
+
+  // Computed — total pages in search mode
+  totalSearchPages = computed(() =>
+    Math.ceil(this.totalFilteredCount() / this.pageSize) || 1
   );
 
-  displayCount = computed(() => this.filteredQuotes().length);
-  isEmpty      = computed(() => this.filteredQuotes().length === 0);
+  // Computed — total pages in browse mode
+  totalBrowsePages = computed(() =>
+    this.allQuotes().length > 0
+      ? Math.ceil(this.allQuotes().length / this.pageSize)
+      : null
+  );
+
+  // Computed — the slice shown on the current search page
+  visibleQuotes = computed(() => {
+    if (!this.isSearchMode()) return this.filteredQuotes();
+    const start = (this.searchPage() - 1) * this.pageSize;
+    return this.filteredQuotes().slice(start, start + this.pageSize);
+  });
+
+  // Computed — count shown on current page
+  displayCount = computed(() => this.visibleQuotes().length);
+
+  // Computed — is the list empty?
+  isEmpty = computed(() =>
+    !this.loading() && !this.searchLoading() && this.filteredQuotes().length === 0
+  );
+
+  // Computed — per-author breakdown in search mode
+  authorStats = computed(() => {
+    if (!this.isSearchMode() || this.filteredQuotes().length === 0) return [];
+    const map = new Map<string, number>();
+    this.filteredQuotes().forEach(q => map.set(q.author, (map.get(q.author) ?? 0) + 1));
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([author, count]) => ({ author, count }));
+  });
 
   constructor() {
+    // Reset search page whenever filter changes
+    effect(() => {
+      this.filterText();
+      this.searchPage.set(1);
+    });
+
+    // Log filter state to console whenever signals change
     effect(() => {
       console.log(
-        `Filter: "${this.filterText()}" → showing ${this.displayCount()} of ${this.quotes().length} quotes`
+        `Filter: "${this.filterText()}" -> showing ${this.totalFilteredCount()} of ` +
+        `${this.isSearchMode() ? this.allQuotes().length : this.browseQuotes().length} quotes`
       );
     });
   }
 
-  ngOnInit() { this.loadQuotes(); }
+  ngOnInit() {
+    this.loadQuotes();
+    this.loadAllQuotes();
+  }
 
   loadQuotes() {
     this.loading.set(true);
-    this.quotesService.getSummary(this.page(), 20).subscribe({
-      next: quotes => { this.quotes.set(quotes); this.loading.set(false); },
-      error: ()    => { this.loading.set(false); }
+    this.quotesService.getSummary(this.page(), this.pageSize).subscribe({
+      next: quotes => {
+        this.browseQuotes.set(quotes);
+        this.isLastPage.set(quotes.length < this.pageSize);
+        this.loading.set(false);
+      },
+      error: () => { this.loading.set(false); }
+    });
+  }
+
+  loadAllQuotes() {
+    if (this.allQuotes().length > 0) return;
+    this.searchLoading.set(true);
+    this.quotesService.getSummary(1, 500).subscribe({
+      next: quotes => { this.allQuotes.set(quotes); this.searchLoading.set(false); },
+      error: ()    => { this.searchLoading.set(false); }
     });
   }
 
   onFilterChange(event: Event) {
-    this.filterText.set((event.target as HTMLInputElement).value);
+    const value = (event.target as HTMLInputElement).value;
+    this.filterText.set(value);
+    if (value.trim()) this.loadAllQuotes();
   }
 
-  nextPage() { this.page.update(p => p + 1); this.loadQuotes(); }
-  prevPage()  { if (this.page() > 1) { this.page.update(p => p - 1); this.loadQuotes(); } }
+  clearFilter() {
+    this.filterText.set('');
+    const el = this.searchInputRef()?.nativeElement;
+    if (el) el.value = '';
+  }
+
+  nextPage() {
+    if (!this.isLastPage()) { this.page.update(p => p + 1); this.loadQuotes(); }
+  }
+
+  prevPage() {
+    if (this.page() > 1) { this.page.update(p => p - 1); this.loadQuotes(); }
+  }
+
+  nextSearchPage() {
+    if (this.searchPage() < this.totalSearchPages()) this.searchPage.update(p => p + 1);
+  }
+
+  prevSearchPage() {
+    if (this.searchPage() > 1) this.searchPage.update(p => p - 1);
+  }
+
+  authorColor(author: string): string {
+    const palette = [
+      '#6c63ff', '#e55a4e', '#43b89c', '#f5a623',
+      '#4a90d9', '#9b59b6', '#e67e22', '#27ae60'
+    ];
+    const code = (author.charCodeAt(0) ?? 0) + (author.charCodeAt(1) ?? 0);
+    return palette[code % palette.length];
+  }
 }
 
 ### src/app/quotes-list/quotes-list.html
-<div class="quotes-container">
-  <h1>Quotes</h1>
-  <div class="filter-bar">
-    <input type="text" placeholder="Filter by author..." (input)="onFilterChange($event)" />
-    <span class="count">{{ displayCount() }} quotes</span>
-  </div>
+<div class="page-wrapper">
+  <header class="app-header">
+    <h1 class="app-title">ThinkSchool Quotes</h1>
+    <p class="app-subtitle">Ideas from the greatest minds, for curious learners</p>
+  </header>
 
-  @if (loading()) {
-    <p class="loading">Loading...</p>
-  }
-  @if (!loading() && isEmpty()) {
-    <p class="empty">No quotes found for "{{ filterText() }}"</p>
-  }
-  @if (!loading() && !isEmpty()) {
-    <ul class="quotes-list">
-      @for (quote of filteredQuotes(); track quote.id) {
-        <li class="quote-card">
-          <div class="author-badge">{{ quote.authorInitials }}</div>
-          <div class="quote-content">
-            <strong class="author-name">{{ quote.author }}</strong>
-            <p class="short-text">{{ quote.shortText }}</p>
-          </div>
-        </li>
+  <main class="main-content">
+    <div class="search-bar">
+      <input
+        #searchInput
+        class="search-input"
+        type="text"
+        placeholder="Search by author or quote..."
+        (input)="onFilterChange($event)"
+      />
+      @if (isSearchMode()) {
+        <button class="clear-btn" (click)="clearFilter()">X</button>
       }
-    </ul>
-  }
+    </div>
 
-  <div class="pagination">
-    <button (click)="prevPage()" [disabled]="page() === 1">← Prev</button>
-    <span>Page {{ page() }}</span>
-    <button (click)="nextPage()">Next →</button>
-  </div>
+    <div class="stats-bar">
+      @if (isSearchMode()) {
+        <span class="stats-text">
+          @if (searchLoading()) {
+            Searching across all quotes...
+          } @else {
+            {{ totalFilteredCount() }} results for "{{ filterText() }}"
+          }
+        </span>
+      } @else {
+        <span class="stats-text">
+          Page {{ page() }}
+          @if (totalBrowsePages()) { of {{ totalBrowsePages() }} }
+          @if (isLastPage()) { - Last page }
+        </span>
+        <span class="stats-right">{{ displayCount() }} quotes on this page</span>
+      }
+    </div>
+
+    @if (isSearchMode() && authorStats().length > 0) {
+      <div class="author-breakdown">
+        @for (stat of authorStats(); track stat.author) {
+          <span class="author-chip" [style.background]="authorColor(stat.author)">
+            {{ stat.author }} ({{ stat.count }})
+          </span>
+        }
+      </div>
+    }
+
+    @if (loading() || searchLoading()) {
+      <p class="loading">Loading...</p>
+    }
+
+    @if (isEmpty()) {
+      <div class="empty-state">
+        <p>No quotes found for "{{ filterText() }}"</p>
+        <button (click)="clearFilter()">Clear search</button>
+      </div>
+    }
+
+    @if (!loading() && !searchLoading() && !isEmpty()) {
+      <ul class="quotes-list">
+        @for (quote of visibleQuotes(); track quote.id) {
+          <li class="quote-card">
+            <div class="author-badge" [style.background]="authorColor(quote.author)">
+              {{ quote.authorInitials }}
+            </div>
+            <div class="quote-content">
+              <strong class="author-name">{{ quote.author }}</strong>
+              <p class="short-text">"{{ quote.shortText }}"</p>
+            </div>
+          </li>
+        }
+      </ul>
+    }
+
+    @if (!isSearchMode() && !loading()) {
+      <div class="pagination">
+        <button (click)="prevPage()" [disabled]="page() === 1">Prev</button>
+        <span>Page {{ page() }}</span>
+        <button (click)="nextPage()" [disabled]="isLastPage()">Next</button>
+      </div>
+    }
+
+    @if (isSearchMode() && !searchLoading() && totalSearchPages() > 1) {
+      <div class="pagination">
+        <button (click)="prevSearchPage()" [disabled]="searchPage() === 1">Prev</button>
+        <span>Page {{ searchPage() }} of {{ totalSearchPages() }}</span>
+        <button (click)="nextSearchPage()" [disabled]="searchPage() === totalSearchPages()">Next</button>
+      </div>
+    }
+  </main>
 </div>
 
 ---
@@ -155,41 +342,72 @@ export class QuotesList implements OnInit {
 
 States exercised:
 
-  Loading spinner     — visible on page load before API responds ✅
-  API down/empty list — backend offline → isEmpty() true → "No quotes found for """  ✅
-  Quotes load         — 20 quotes render on page 1 from real API ✅
-  Filter updates list — typing "Seed" → filteredQuotes recomputes, count updates ✅
-  Filter clears       — clearing input → all 20 quotes reappear ✅
-  Empty filter state  — typing "xyz" → isEmpty() true → empty message shows ✅
-  Pagination          — Next loads page 2, Prev disabled on page 1 ✅
+  Loading spinner      — visible on page load before API responds ✅
+  Browse mode          — 10 quotes load on page 1 from real API ✅
+  Page X of Y          — "Page 1 of 51" shown once background fetch completes ✅
+  Next / Prev page     — Prev disabled on page 1, Next disabled on last page ✅
+  Search across all    — typing "Aristotle" filters all 510 quotes, not just page 1 ✅
+  Author breakdown     — chips show each author with their quote count ✅
+  Search pagination    — 25 Aristotle results shown as 3 pages (10 / 10 / 5) ✅
+  Filter clears        — clicking X resets list back to browse mode ✅
+  Empty state          — typing "xyz" shows no results and clear button ✅
 
 Effect log output (browser console):
-  Filter: "" → showing 20 of 20 quotes
-  Filter: "S" → showing 20 of 20 quotes
-  Filter: "Se" → showing 20 of 20 quotes
-  Filter: "See" → showing 20 of 20 quotes
-  Filter: "Seed" → showing 20 of 20 quotes
-  Filter: "xyz" → showing 0 of 20 quotes
+Filter: "a" → showing 499 of 500 quotes
+quotes-list.ts:108 Filter: "ar" → showing 102 of 500 quotes
+quotes-list.ts:108 Filter: "ari" → showing 25 of 500 quotes
+quotes-list.ts:108 Filter: "aris" → showing 25 of 500 quotes
+quotes-list.ts:108 Filter: "arist" → showing 25 of 500 quotes
+quotes-list.ts:108 Filter: "aristo" → showing 25 of 500 quotes
+quotes-list.ts:108 Filter: "aristot" → showing 25 of 500 quotes
+quotes-list.ts:108 Filter: "aristotl" → showing 25 of 500 quotes
+quotes-list.ts:108 Filter: "aristotle" → showing 25 of 500 quotes
+quotes-list.ts:108 Filter: "" → showing 10 of 10 quotes
+quotes-list.ts:108 Filter: "x" → showing 491 of 500 quotes
+quotes-list.ts:108 Filter: "xy" → showing 0 of 500 quotes
+quotes-list.ts:108 Filter: "xyz" → showing 0 of 500 quotes
 
-Bug caught and fixed:
-  The agent initially used provideExperimentalZonelessChangeDetection —
-  a name that existed in Angular 18/19 but was removed in Angular 21.
-  Build error: TS2724 — no exported member named
-  'provideExperimentalZonelessChangeDetection'. Did you mean
-  'provideZonelessChangeDetection'?
-  Fixed: renamed import and call site in app.config.ts.
+Bugs caught and fixed:
+
+  Bug 1 — Wrong Angular API name
+    Agent used provideExperimentalZonelessChangeDetection() which was removed in Angular 21.
+    Build failed with TS2724. Fixed to provideZonelessChangeDetection() in app.config.ts.
+
+  Bug 2 — Filter only worked on current page
+    Agent filtered the quotes signal which only held the 10 quotes on the current page.
+    Searching "Aristotle" showed 0 results if Aristotle was not on page 1.
+    Fixed: added allQuotes signal that loads all 500 quotes in the background on init.
+    filteredQuotes now filters from allQuotes when in search mode.
+
+  Bug 3 — No total page count shown in browse mode
+    Agent showed "Page 1" with no total. Could not tell how many pages exist.
+    Fixed: allQuotes background fetch gives the total count.
+    totalBrowsePages computed shows "Page 1 of 51".
+
+  Bug 4 — Search showed all matching results in one long page
+    Agent returned all 25 Aristotle results on one screen instead of paginating.
+    Fixed: added searchPage signal and visibleQuotes computed that slices
+    filteredQuotes into pages of 10. Search results now show "Page 1 of 3".
 
 What would break if API contract changed:
-  - id removed/renamed     → track quote.id becomes undefined, DOM identity lost
-  - author renamed         → filteredQuotes always returns all quotes (silent bug)
-  - authorInitials removed → author badge renders blank, no error
-  - endpoint path changed  → 404 at runtime, loading signal stays false,
-                             empty state shows with no user-facing error message
+
+  - id removed/renamed     -> track quote.id breaks, list loses DOM identity
+  - author renamed         -> filter never matches anything, silent bug
+  - authorInitials removed -> author badge renders blank, no error thrown
+  - shortText renamed      -> quote text disappears from cards, no error thrown
+  - endpoint path changed  -> 404 at runtime, empty state shows with no error message
 
 What zoneless changes about change detection:
-  Zone.js patches every browser async API and triggers a full component tree
-  check after each event — even ones unrelated to your component. Zoneless
-  removes Zone.js entirely. Angular only re-renders when a signal that a
-  template reads has changed. This means setTimeout/setInterval mutations
-  to plain variables won't show in the UI — all mutable state must be a
-  signal(). The payoff: no unnecessary checks, smaller bundle, faster UI.
+  Zone.js watches every browser async event and triggers a full component tree check
+  after each one, even for things unrelated to your component. Zoneless removes Zone.js
+  entirely. Angular only re-renders the parts of the template that read a signal which
+  just changed. So when filterText signal updates, only the parts of the template
+  reading filterText() or computed values derived from it re-render — nothing else
+  is touched. This also means plain variables will never update the UI. All state
+  that drives the template must be a signal().
+
+
+Screenshots Link:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day13Piece1-signals-zoneless/screenshots/day13piece1
+
+

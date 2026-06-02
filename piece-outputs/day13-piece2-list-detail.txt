@@ -1,0 +1,457 @@
+Day 13 — A real component from a spec
+======================================
+
+## (1) Brief to the Agent
+
+Add a list and detail view to my existing Angular 21 standalone app.
+Real API endpoints:
+  List:   GET http://localhost:5150/api/quotes/summary?page=1&size=10
+          Fields: id (number), author (string), authorInitials (string), shortText (string)
+  Detail: GET http://localhost:5150/api/quotes/{id}
+          Fields: id (number), author (string), text (string) — full text, not shortText
+What I want:
+- Keep the existing list component — just make each card clickable
+- When a quote is clicked, fetch the full quote from GET /api/quotes/{id}
+  and show it in a slide-in detail panel on the right
+- Use signals for all state — no any types anywhere
+- Three signals for the detail: detailLoading, detailError, detail
+- Handle the race condition — if the user clicks quote 1 then quickly clicks
+  quote 2, only quote 2 should show. Quote 1 response must be ignored.
+- Show a loading skeleton while the detail is fetching
+- Show an error message with a Retry button if the fetch fails
+- Clicking outside the panel or the X button closes it
+- Use inject() for the service, no constructor injection
+- Both models must be typed — no any
+
+---
+
+## (2) Agent Output
+
+### src/app/quotes.service.ts
+import { inject, Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+
+export interface Quote {
+  id: number;
+  author: string;
+  authorInitials: string;
+  shortText: string;
+}
+
+// Detail model — matches GET /api/quotes/{id} response fields exactly
+export interface QuoteDetail {
+  id: number;
+  author: string;
+  text: string; // full text — different from shortText in the summary
+}
+
+@Injectable({ providedIn: 'root' })
+export class QuotesService {
+  private http = inject(HttpClient);
+  private baseUrl = 'http://localhost:5150';
+
+  getSummary(page: number, size: number) {
+    return this.http.get<Quote[]>(
+      `${this.baseUrl}/api/quotes/summary?page=${page}&size=${size}`
+    );
+  }
+
+  getById(id: number) {
+    return this.http.get<QuoteDetail>(`${this.baseUrl}/api/quotes/${id}`);
+  }
+}
+
+### src/app/quotes-list/quotes-list.ts
+import {
+  Component, computed, effect, inject, signal, OnInit, viewChild, ElementRef
+} from '@angular/core';
+import { Quote, QuoteDetail, QuotesService } from '../quotes.service';
+
+@Component({
+  selector: 'app-quotes-list',
+  standalone: true,
+  imports: [],
+  templateUrl: './quotes-list.html',
+  styleUrl: './quotes-list.css'
+})
+export class QuotesList implements OnInit {
+  private quotesService = inject(QuotesService);
+
+  searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+
+  readonly pageSize = 10;
+
+  browseQuotes  = signal<Quote[]>([]);
+  allQuotes     = signal<Quote[]>([]);
+  filterText    = signal('');
+  page          = signal(1);
+  loading       = signal(false);
+  searchLoading = signal(false);
+  isLastPage    = signal(false);
+  browseError   = signal<string | null>(null);
+  searchPage    = signal(1);
+
+  // Detail signals — typed, no any
+  selectedId    = signal<number | null>(null);
+  detail        = signal<QuoteDetail | null>(null);
+  detailLoading = signal(false);
+  detailError   = signal<string | null>(null);
+
+  // Race condition guard — incremented on every selectQuote() call
+  private detailRequestId = 0;
+
+  isSearchMode = computed(() => this.filterText().trim().length > 0);
+
+  filteredQuotes = computed(() => {
+    if (this.isSearchMode()) {
+      const text = this.filterText().toLowerCase();
+      return this.allQuotes().filter(q =>
+        q.author.toLowerCase().includes(text) ||
+        q.shortText.toLowerCase().includes(text)
+      );
+    }
+    return this.browseQuotes();
+  });
+
+  totalFilteredCount = computed(() => this.filteredQuotes().length);
+  totalSearchPages   = computed(() => Math.ceil(this.totalFilteredCount() / this.pageSize) || 1);
+  totalBrowsePages   = computed(() =>
+    this.allQuotes().length > 0 ? Math.ceil(this.allQuotes().length / this.pageSize) : null
+  );
+
+  visibleQuotes = computed(() => {
+    if (!this.isSearchMode()) return this.filteredQuotes();
+    const start = (this.searchPage() - 1) * this.pageSize;
+    return this.filteredQuotes().slice(start, start + this.pageSize);
+  });
+
+  displayCount = computed(() => this.visibleQuotes().length);
+
+  isEmpty = computed(() =>
+    !this.loading() && !this.searchLoading() && this.filteredQuotes().length === 0
+  );
+
+  authorStats = computed(() => {
+    if (!this.isSearchMode() || this.filteredQuotes().length === 0) return [];
+    const map = new Map<string, number>();
+    this.filteredQuotes().forEach(q => map.set(q.author, (map.get(q.author) ?? 0) + 1));
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([author, count]) => ({ author, count }));
+  });
+
+  constructor() {
+    effect(() => { this.filterText(); this.searchPage.set(1); });
+    effect(() => {
+      console.log(
+        `Filter: "${this.filterText()}" -> showing ${this.totalFilteredCount()} of ` +
+        `${this.isSearchMode() ? this.allQuotes().length : this.browseQuotes().length} quotes`
+      );
+    });
+  }
+
+  ngOnInit() { this.loadQuotes(); this.loadAllQuotes(); }
+
+  loadQuotes() {
+    this.loading.set(true);
+    this.browseError.set(null);
+    this.quotesService.getSummary(this.page(), this.pageSize).subscribe({
+      next: quotes => {
+        this.browseQuotes.set(quotes);
+        this.isLastPage.set(quotes.length < this.pageSize);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.browseError.set('Could not reach the server. Is the backend running?');
+        this.loading.set(false);
+      }
+    });
+  }
+
+  loadAllQuotes() {
+    if (this.allQuotes().length > 0) return;
+    this.searchLoading.set(true);
+    this.quotesService.getSummary(1, 500).subscribe({
+      next: quotes => { this.allQuotes.set(quotes); this.searchLoading.set(false); },
+      error: ()    => { this.searchLoading.set(false); }
+    });
+  }
+
+  onFilterChange(event: Event) {
+    const value = (event.target as HTMLInputElement).value;
+    this.filterText.set(value);
+    if (value.trim()) this.loadAllQuotes();
+  }
+
+  clearFilter() {
+    this.filterText.set('');
+    const el = this.searchInputRef()?.nativeElement;
+    if (el) el.value = '';
+  }
+
+  nextPage()       { if (!this.isLastPage()) { this.page.update(p => p + 1); this.loadQuotes(); } }
+  prevPage()       { if (this.page() > 1) { this.page.update(p => p - 1); this.loadQuotes(); } }
+  nextSearchPage() { if (this.searchPage() < this.totalSearchPages()) this.searchPage.update(p => p + 1); }
+  prevSearchPage() { if (this.searchPage() > 1) this.searchPage.update(p => p - 1); }
+
+  selectQuote(id: number) {
+    this.selectedId.set(id);
+    this.detail.set(null);
+    this.detailError.set(null);
+
+    const requestId = ++this.detailRequestId;
+    this.detailLoading.set(true);
+
+    this.quotesService.getById(id).subscribe({
+      next: quote => {
+        if (requestId !== this.detailRequestId) return; // stale — a newer click already fired
+        this.detail.set(quote);
+        this.detailLoading.set(false);
+      },
+      error: () => {
+        if (requestId !== this.detailRequestId) return;
+        this.detailError.set('Could not load quote. Check your connection and try again.');
+        this.detailLoading.set(false);
+      }
+    });
+  }
+
+  closeDetail() {
+    this.selectedId.set(null);
+    this.detail.set(null);
+    this.detailError.set(null);
+    this.detailLoading.set(false);
+  }
+
+  authorColor(author: string): string {
+    const palette = ['#6c63ff','#e55a4e','#43b89c','#f5a623','#4a90d9','#9b59b6','#e67e22','#27ae60'];
+    const code = (author.charCodeAt(0) ?? 0) + (author.charCodeAt(1) ?? 0);
+    return palette[code % palette.length];
+  }
+}
+
+### src/app/quotes-list/quotes-list.html
+<div class="page-wrapper">
+  <header class="app-header">
+    <h1 class="app-title">ThinkSchool Quotes</h1>
+    <p class="app-subtitle">Ideas from the greatest minds, for curious learners</p>
+  </header>
+
+  <main class="main-content">
+    <div class="search-bar">
+      <input #searchInput class="search-input" type="text"
+        placeholder="Search by author or quote..." (input)="onFilterChange($event)" />
+      @if (isSearchMode()) {
+        <button class="clear-btn" (click)="clearFilter()">X</button>
+      }
+    </div>
+
+    <div class="stats-bar">
+      @if (isSearchMode()) {
+        <span class="stats-text">
+          @if (searchLoading()) { Searching... }
+          @else { <strong>{{ totalFilteredCount() }}</strong> results for "{{ filterText() }}" }
+        </span>
+      } @else {
+        <span class="stats-text">
+          Page <strong>{{ page() }}</strong>
+          @if (totalBrowsePages()) { of <strong>{{ totalBrowsePages() }}</strong> }
+        </span>
+      }
+    </div>
+
+    @if (isSearchMode() && authorStats().length > 0) {
+      <div class="author-breakdown">
+        @for (stat of authorStats(); track stat.author) {
+          <span class="author-chip" [style.background]="authorColor(stat.author)">
+            {{ stat.author }} <span class="chip-count">{{ stat.count }}</span>
+          </span>
+        }
+      </div>
+    }
+
+    @if (loading() || searchLoading()) {
+      <div class="skeleton-list">
+        @for (n of [1,2,3,4,5]; track n) {
+          <div class="skeleton-card">
+            <div class="skeleton-avatar"></div>
+            <div class="skeleton-body">
+              <div class="skeleton-line short"></div>
+              <div class="skeleton-line long"></div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Browse error — backend is down, not a search empty state -->
+    @if (browseError() && !loading()) {
+      <div class="empty-state">
+        <p class="empty-icon">⚠️</p>
+        <p class="empty-title">Could not load quotes</p>
+        <p class="empty-sub">{{ browseError() }}</p>
+        <button class="reset-btn" (click)="loadQuotes()">Retry</button>
+      </div>
+    }
+
+    <!-- Empty state — search returned nothing -->
+    @if (isEmpty() && !browseError()) {
+      <div class="empty-state">
+        <p class="empty-icon">🔍</p>
+        <p class="empty-title">No quotes found</p>
+        <p class="empty-sub">No results for "{{ filterText() }}"</p>
+        <button class="reset-btn" (click)="clearFilter()">Clear search</button>
+      </div>
+    }
+
+    <!-- Quotes list — cards are clickable -->
+    @if (!loading() && !searchLoading() && !isEmpty()) {
+      <ul class="quotes-list">
+        @for (quote of visibleQuotes(); track quote.id) {
+          <li class="quote-card"
+              [class.selected]="selectedId() === quote.id"
+              [style.--accent]="authorColor(quote.author)"
+              (click)="selectQuote(quote.id)">
+            <div class="author-badge" [style.background]="authorColor(quote.author)">
+              {{ quote.authorInitials }}
+            </div>
+            <div class="quote-content">
+              <strong class="author-name">{{ quote.author }}</strong>
+              <p class="short-text">"{{ quote.shortText }}"</p>
+            </div>
+            <span class="card-arrow">›</span>
+          </li>
+        }
+      </ul>
+    }
+
+    @if (!isSearchMode() && !loading()) {
+      <div class="pagination">
+        <button class="page-btn" (click)="prevPage()" [disabled]="page() === 1">← Prev</button>
+        <span class="page-indicator">Page <strong>{{ page() }}</strong></span>
+        <button class="page-btn" (click)="nextPage()" [disabled]="isLastPage()">Next →</button>
+      </div>
+    }
+
+    @if (isSearchMode() && !searchLoading() && totalSearchPages() > 1) {
+      <div class="pagination">
+        <button class="page-btn" (click)="prevSearchPage()" [disabled]="searchPage() === 1">← Prev</button>
+        <span class="page-indicator">Page <strong>{{ searchPage() }}</strong> of <strong>{{ totalSearchPages() }}</strong></span>
+        <button class="page-btn" (click)="nextSearchPage()" [disabled]="searchPage() === totalSearchPages()">Next →</button>
+      </div>
+    }
+  </main>
+</div>
+
+<!-- Detail panel — slides in from the right -->
+@if (selectedId() !== null) {
+  <div class="detail-overlay" (click)="closeDetail()"></div>
+  <aside class="detail-panel">
+    <button class="detail-close" (click)="closeDetail()">X</button>
+
+    @if (detailLoading()) {
+      <div class="detail-skeleton">
+        <div class="ds-avatar"></div>
+        <div class="ds-lines">
+          <div class="ds-line short"></div>
+          <div class="ds-line long"></div>
+          <div class="ds-line long"></div>
+          <div class="ds-line medium"></div>
+        </div>
+      </div>
+    }
+
+    @if (detailError()) {
+      <div class="detail-error">
+        <p class="error-icon">⚠️</p>
+        <p class="error-msg">{{ detailError() }}</p>
+        <button class="retry-btn" (click)="selectQuote(selectedId()!)">Retry</button>
+      </div>
+    }
+
+    @if (!detailLoading() && !detailError() && detail()) {
+      <div class="detail-content">
+        <div class="detail-badge" [style.background]="authorColor(detail()!.author)">
+          {{ detail()!.author[0] }}
+        </div>
+        <h2 class="detail-author">{{ detail()!.author }}</h2>
+        <blockquote class="detail-text">"{{ detail()!.text }}"</blockquote>
+        <p class="detail-id">Quote #{{ detail()!.id }}</p>
+      </div>
+    }
+  </aside>
+}
+
+---
+
+## (3) Verification Log
+
+States exercised:
+
+  Loading skeleton (list)   — skeleton cards visible on page load before quotes arrive ✅
+  Quotes load               — 10 quotes render, stats bar shows "Page 1 of 51" ✅
+  Click a quote             — detail panel slides in from the right ✅
+  Detail loading skeleton   — skeleton pulses inside panel while GET /api/quotes/{id} is in flight ✅
+  Detail loads              — full text field from real API renders correctly in panel ✅
+  Close with X button       — panel closes, selectedId resets to null ✅
+  Close with overlay        — clicking the dark background also closes panel ✅
+  Selected card highlight   — clicked card gets left border highlight ✅
+  Race condition            — clicked quote 1, immediately clicked quote 2 before panel loaded →
+                              only quote 2 appeared. Quote 1 response was ignored because
+                              requestId !== detailRequestId at the time it arrived ✅
+  Error state (detail)      — stopped backend, clicked quote → error message + Retry showed ✅
+  Retry (detail)            — restarted backend, clicked Retry → quote loaded correctly ✅
+  Browse error state        — stopped backend, refreshed page → ⚠️ error + Retry showed,
+                              NOT "Clear search" ✅
+  Retry (browse)            — restarted backend, clicked Retry on browse error → quotes loaded ✅
+  Search + click            — searched "Aristotle", clicked a result → correct detail loaded ✅
+
+Bug caught and fixed — swallowed error:
+
+  The agent's original loadQuotes() error callback was:
+    error: () => { this.loading.set(false); }
+
+  It swallowed the error completely — no signal was set, no message shown.
+  When the backend was down and the page was refreshed, browseQuotes stayed empty,
+  isEmpty() returned true, and the UI showed the search empty state with a
+  "Clear search" button — even though the user had not searched anything.
+  There was no way to know the API had failed.
+
+  Fixed by adding a browseError signal:
+    error: () => {
+      this.browseError.set('Could not reach the server. Is the backend running?');
+      this.loading.set(false);
+    }
+
+  And splitting the template into two separate states:
+    @if (browseError())         -> shows error message + Retry
+    @if (isEmpty() && !browseError()) -> shows "No quotes found" + Clear search
+
+What would break if API contract changed:
+
+  - GET /api/quotes/{id} renamed
+      -> 404 on every card click, detailError signal fires, Retry shows
+
+  - text field renamed (e.g. to fullText or content)
+      -> detail panel renders blank quote, no error thrown
+      -> TypeScript catches this at compile time since QuoteDetail is typed — no any
+
+  - author removed from detail response
+      -> detail badge and author name render blank, no runtime error
+
+  - shortText renamed in summary response
+      -> list cards go blank, filter never matches, silent failure
+      -> TypeScript catches this since Quote interface is typed
+
+  - 401 returned from GET /api/quotes/{id} (auth added to detail endpoint)
+      -> HTTP error triggers detailError, Retry shows
+      -> but error message says "Check your connection" which is misleading for a 401
+      -> real fix would read the HTTP status and show "Not authorized" for 401
+
+Screenshots Link:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day13Piece1-signals-zoneless/screenshots/day13piece2
+
+CI run:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/actions/runs/26800241006
+
+
