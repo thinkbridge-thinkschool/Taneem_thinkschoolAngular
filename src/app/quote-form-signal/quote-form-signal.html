@@ -1,5 +1,10 @@
 <section class="form-panel" aria-labelledby="sf-heading" role="region">
-  <h2 id="sf-heading" class="form-title">Create a Quote <span class="form-badge">Signal Form</span></h2>
+  <div class="form-top">
+    <h2 id="sf-heading" class="form-title">Create a Quote <span class="form-badge">Signal Form</span></h2>
+    @if (auth.currentEmail) {
+      <span class="form-user">{{ auth.currentEmail }}</span>
+    }
+  </div>
 
   @if (success()) {
     <div class="success-banner" role="status" aria-live="polite">
@@ -33,7 +38,9 @@
         aria-describedby="sf-author-error sf-author-hint"
         aria-required="true"
       />
-      <span id="sf-author-hint" class="field-hint">{{ authorCount() }}/200 characters</span>
+      <span id="sf-author-hint" class="field-hint" [class.hint-warn]="authorCount() > 180">
+        {{ authorCount() }}/200 characters
+      </span>
       @if (showAuthorError()) {
         <span id="sf-author-error" class="field-error" role="alert">
           {{ authorErrors() }}
@@ -58,7 +65,9 @@
         aria-describedby="sf-text-error sf-text-hint"
         aria-required="true"
       ></textarea>
-      <span id="sf-text-hint" class="field-hint">{{ textCount() }}/1000 characters</span>
+      <span id="sf-text-hint" class="field-hint" [class.hint-warn]="textCount() > 900">
+        {{ textCount() }}/1000 characters
+      </span>
       @if (showTextError()) {
         <span id="sf-text-error" class="field-error" role="alert">
           {{ textErrors() }}
@@ -83,6 +92,14 @@
         [disabled]="submitting()"
       >
         Cancel
+      </button>
+      <button
+        type="button"
+        class="btn-signout"
+        (click)="auth.logout(); onCancel()"
+        [disabled]="submitting()"
+      >
+        Sign out
       </button>
     </div>
 

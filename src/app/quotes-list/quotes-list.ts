@@ -3,18 +3,20 @@ import {
 } from '@angular/core';
 import { EMPTY, expand, reduce } from 'rxjs';
 import { Quote, QuoteDetail, QuotesService } from '../quotes.service';
-import { QuoteForm } from '../quote-form/quote-form';
 import { QuoteFormSignal } from '../quote-form-signal/quote-form-signal';
+import { AuthService } from '../auth.service';
+import { Login } from '../login/login';
 
 @Component({
   selector: 'app-quotes-list',
   standalone: true,
-  imports: [QuoteForm, QuoteFormSignal],
+  imports: [QuoteFormSignal, Login],
   templateUrl: './quotes-list.html',
   styleUrl: './quotes-list.css'
 })
 export class QuotesList implements OnInit {
   private quotesService = inject(QuotesService);
+  auth     = inject(AuthService);
 
   // Template ref for the search input — used to clear value imperatively
   searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
@@ -50,7 +52,7 @@ export class QuotesList implements OnInit {
 
   // Form toggle
   showForm  = signal(false);
-  formMode  = signal<'reactive' | 'signal'>('reactive');
+  showLogin = signal(false);
 
   // Detail signals
   selectedId    = signal<number | null>(null);
@@ -206,12 +208,25 @@ export class QuotesList implements OnInit {
     if (this.searchPage() > 1) this.searchPage.update(p => p - 1);
   }
 
-  toggleForm() { this.showForm.update(v => !v); }
+  toggleForm() {
+    // If anything is open — close everything
+    if (this.showForm() || this.showLogin()) {
+      this.showForm.set(false);
+      this.showLogin.set(false);
+      return;
+    }
+    // Opening — check login
+    if (!this.auth.isLoggedIn()) {
+      this.showLogin.set(true);
+    } else {
+      this.showForm.set(true);
+    }
+  }
 
   onQuoteCreated() {
-    this.showForm.set(false);
+    // Refresh list in background — form stays open
     this.page.set(1);
-    this.allQuotes.set([]); // bust cache so new quote appears in search
+    this.allQuotes.set([]);
     this.loadQuotes();
     this.loadAllQuotes();
   }
@@ -230,9 +245,9 @@ export class QuotesList implements OnInit {
         this.detail.set(quote);
         this.detailLoading.set(false);
       },
-      error: () => {
+      error: (err) => {
         if (requestId !== this.detailRequestId) return;
-        this.detailError.set('Could not load quote. Check your connection and try again.');
+        this.detailError.set(err?.message ?? 'Could not load quote. Try again.');
         this.detailLoading.set(false);
       }
     });

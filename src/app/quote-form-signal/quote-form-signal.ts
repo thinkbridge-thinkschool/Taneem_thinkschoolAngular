@@ -1,5 +1,6 @@
 import { Component, computed, inject, output, signal } from '@angular/core';
 import { QuotesService } from '../quotes.service';
+import { AuthService } from '../auth.service';
 
 @Component({
   selector: 'app-quote-form-signal',
@@ -10,6 +11,7 @@ import { QuotesService } from '../quotes.service';
 })
 export class QuoteFormSignal {
   private quotesService = inject(QuotesService);
+  auth = inject(AuthService);
 
   created   = output<void>();
   cancelled = output<void>();
@@ -105,7 +107,8 @@ export class QuoteFormSignal {
         this.authorDirty.set(false);
         this.textDirty.set(false);
         this.submitAttempted.set(false);
-        setTimeout(() => { this.success.set(false); this.created.emit(); }, 1500);
+        setTimeout(() => { this.success.set(false); }, 1500);
+        this.created.emit(); // refresh list in background but keep form open
       },
       error: err => {
         this.submitting.set(false);

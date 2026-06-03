@@ -48,36 +48,56 @@
   outline-offset: 2px;
 }
 
-/* ── Form mode toggle ── */
-.form-mode-toggle {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.mode-btn {
-  background: white;
-  border: 1.5px solid #d1d5db;
-  color: #6b7280;
-  padding: 0.4rem 1rem;
-  border-radius: 8px;
+.btn-logout {
+  background: transparent;
+  color: rgba(255,255,255,0.8);
+  border: none;
+  padding: 0.5rem 0.75rem;
+  border-radius: 9px;
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
-.mode-btn.active {
-  background: #4f46e5;
-  border-color: #4f46e5;
-  color: white;
-}
+.btn-logout::before { content: '→'; font-size: 0.9rem; }
+.btn-logout:hover { color: white; background: rgba(255,255,255,0.15); }
+
 
 /* ── Main content ── */
 .main-content {
   max-width: 720px;
   margin: -1.75rem auto 0;
   padding: 0 1rem 4rem;
+}
+
+/* ── Session expired banner ── */
+.session-expired-banner {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  border-radius: 9px;
+  padding: 0.7rem 1rem;
+  font-size: 0.88rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #4f46e5;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
 }
 
 /* ── Search bar ── */
@@ -322,6 +342,11 @@
 .quote-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+}
+
+.quote-card:focus-visible {
+  outline: 3px solid #667eea;
+  outline-offset: 2px;
 }
 
 .author-badge {

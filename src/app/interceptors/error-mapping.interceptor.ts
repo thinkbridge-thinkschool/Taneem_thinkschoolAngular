@@ -1,6 +1,8 @@
 import { HttpInterceptorFn } from '@angular/common/http';
+import { inject } from '@angular/core';
 import { throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import { AuthService } from '../auth.service';
 
 // Typed app error — replaces raw HttpErrorResponse with something the UI can use
 export interface AppError {
@@ -14,26 +16,35 @@ export interface AppError {
 // Backend shapes handled:
 //   404/401 empty body  → generic friendly message by status code
 //   500 ProblemDetails  → { title, status, detail } from ExceptionMiddleware
-export const errorMappingInterceptor: HttpInterceptorFn = (req, next) =>
-  next(req).pipe(
+export const errorMappingInterceptor: HttpInterceptorFn = (req, next) => {
+  const auth = inject(AuthService);
+
+  return next(req).pipe(
     catchError(httpError => {
       const status: number = httpError.status ?? 0;
       const body = httpError.error;
-
-      // Use ProblemDetails detail field if available
       const detail: string | undefined = body?.detail;
       const title: string = body?.title ?? titleFor(status);
+
+      // 401 while already logged in = token expired mid-session
+      if (status === 401 && auth.isLoggedIn()) {
+        auth.logout();
+        auth.sessionExpired.set(true);
+      }
 
       const appError: AppError = {
         status,
         title,
         detail,
-        message: messageFor(status, detail)
+        message: status === 401 && auth.sessionExpired()
+          ? 'Your session has expired. Please sign in again.'
+          : messageFor(status, detail)
       };
 
       return throwError(() => appError);
     })
   );
+};
 
 function titleFor(status: number): string {
   if (status === 401) return 'Unauthorized';

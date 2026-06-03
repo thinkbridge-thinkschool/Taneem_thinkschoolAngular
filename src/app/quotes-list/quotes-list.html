@@ -5,39 +5,32 @@
     <h1 class="app-title">ThinkSchool Quotes</h1>
     <p class="app-subtitle">Ideas from the greatest minds, for curious learners</p>
     <button class="btn-new-quote" (click)="toggleForm()" [attr.aria-expanded]="showForm()">
-      @if (showForm()) { ✕ Close } @else { + New Quote }
+      @if (showForm() || showLogin()) { ✕ Close } @else { + New Quote }
     </button>
   </header>
 
   <!-- ── Main content ── -->
   <main class="main-content">
 
-    <!-- Create quote form — toggled by New Quote button -->
-    @if (showForm()) {
-      <div class="form-mode-toggle">
-        <button
-          class="mode-btn"
-          [class.active]="formMode() === 'reactive'"
-          (click)="formMode.set('reactive')"
-        >Reactive Form</button>
-        <button
-          class="mode-btn"
-          [class.active]="formMode() === 'signal'"
-          (click)="formMode.set('signal')"
-        >Signal Form</button>
+    @if (auth.sessionExpired()) {
+      <div class="session-expired-banner" role="alert">
+        Your session has expired. Please
+        <button class="link-btn" (click)="auth.sessionExpired.set(false); showLogin.set(true)">sign in again</button>
+        to create quotes.
       </div>
+    }
 
-      @if (formMode() === 'reactive') {
-        <app-quote-form
-          (created)="onQuoteCreated()"
-          (cancelled)="showForm.set(false)"
-        />
-      } @else {
-        <app-quote-form-signal
-          (created)="onQuoteCreated()"
-          (cancelled)="showForm.set(false)"
-        />
-      }
+    <!-- Login prompt — shown when unauthenticated user clicks New Quote -->
+    @if (showLogin()) {
+      <app-login (loggedIn)="showLogin.set(false); showForm.set(true)" />
+    }
+
+    <!-- Create quote form -->
+    @if (showForm() && auth.isLoggedIn()) {
+      <app-quote-form-signal
+        (created)="onQuoteCreated()"
+        (cancelled)="showForm.set(false)"
+      />
     }
 
     <!-- Search bar -->
@@ -95,7 +88,7 @@
     }
 
     <!-- Loading skeleton -->
-    @if (loading() || searchLoading()) {
+    @if (loading()) {
       <div class="skeleton-list">
         @for (n of [1, 2, 3, 4, 5]; track n) {
           <div class="skeleton-card">
@@ -138,6 +131,11 @@
             [class.selected]="selectedId() === quote.id"
             [style.--accent]="authorColor(quote.author)"
             (click)="selectQuote(quote.id)"
+            (keydown.enter)="selectQuote(quote.id)"
+            (keydown.space)="selectQuote(quote.id)"
+            tabindex="0"
+            role="button"
+            [attr.aria-label]="quote.author + ': ' + quote.shortText"
           >
             <div class="author-badge" [style.background]="authorColor(quote.author)">
               {{ quote.authorInitials }}
