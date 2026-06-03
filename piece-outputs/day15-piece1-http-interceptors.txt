@@ -138,25 +138,42 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   }));
 };
 
-### src/app/interceptors/retry.interceptor.ts
-import { HttpInterceptorFn } from '@angular/common/http';
-import { timer } from 'rxjs';
-import { retry } from 'rxjs/operators';
+### src/app/interceptors/retry.interceptor.ts (original — before bug fix)
+import { HttpInterceptorFn, HttpRequest } from '@angular/common/http';
+import { throwError, timer } from 'rxjs';
+import { catchError, switchMap } from 'rxjs/operators';
 
 const MAX_RETRIES = 3;
 
+function isIdempotent(req: HttpRequest<unknown>): boolean {
+  return req.method === 'GET';
+}
+
+function backoffDelay(attempt: number): number {
+  return Math.pow(2, attempt) * 1000;
+}
+
 export const retryInterceptor: HttpInterceptorFn = (req, next) => {
-  if (req.method !== 'GET') return next(req);
-  return next(req).pipe(
-    retry({
-      count: MAX_RETRIES,
-      delay: (error, retryCount) => {
-        const isRetryable = error.status === 0 || error.status >= 500;
-        if (!isRetryable) throw error;
-        return timer(Math.pow(2, retryCount - 1) * 1000); // 1s, 2s, 4s
-      }
-    })
-  );
+  if (!isIdempotent(req)) return next(req);
+
+  // Bug: recursive function with no return type annotation.
+  // TypeScript error TS7023: 'attempt' implicitly has return type 'any'
+  // because it references itself in its return expression.
+  // Build failed — could not compile.
+  const attempt = (count: number) =>
+    next(req).pipe(
+      catchError(err => {
+        const isRetryable = err.status === 0 || err.status >= 500;
+        if (isRetryable && count < MAX_RETRIES) {
+          return timer(backoffDelay(count)).pipe(
+            switchMap(() => attempt(count + 1))
+          );
+        }
+        return throwError(() => err);
+      })
+    );
+
+  return attempt(0);
 };
 
 ### src/app/interceptors/error-mapping.interceptor.ts
@@ -256,25 +273,36 @@ States exercised:
   Empty state         — backend stopped, page shows ⚠️ error banner with Retry button
                         screenshot: error-mapping.png ✅
 
-Bug caught and fixed — component ignored typed AppError from interceptor:
+Bug caught and fixed — retry interceptor used recursive function causing TS7023 build failure:
 
-  The component's loadQuotes() error callback was hardcoded:
-    error: () => {
-      this.browseError.set('Could not reach the server. Is the backend running?');
-    }
+  The agent wrote the retry logic as a recursive arrow function:
+    const attempt = (count: number) =>
+      next(req).pipe(
+        catchError(err => {
+          return timer(...).pipe(switchMap(() => attempt(count + 1)));
+        })
+      );
 
-  The errorMappingInterceptor converts every HttpErrorResponse to a typed
-  AppError with a message field — but the component's error handler ignored
-  the AppError entirely and used its own hardcoded string. The interceptor's
-  typed error was being swallowed and thrown away.
+  TypeScript error: TS7023 — 'attempt' implicitly has return type 'any'
+  because it references itself in its return expression with no explicit
+  return type annotation. Build failed — app could not compile.
 
-  Fixed: updated the error callback to read AppError.message:
-    error: (err) => {
-      this.browseError.set(err?.message ?? 'Could not reach the server.');
-    }
+  Fixed: rewrote using RxJS retry operator with a delay function — no
+  recursive function needed, TypeScript can infer all types correctly:
+    return next(req).pipe(
+      retry({
+        count: MAX_RETRIES,
+        delay: (error, retryCount) => {
+          const isRetryable = error.status === 0 || error.status >= 500;
+          if (!isRetryable) throw error;
+          return timer(Math.pow(2, retryCount - 1) * 1000);
+        }
+      })
+    );
 
-  Now the friendly message comes from the interceptor — one source of truth
-  for all error messages in the app.
+Additional observation — component ignored typed AppError from interceptor:
+  loadQuotes() error callback used a hardcoded string instead of err.message.
+  Fixed to read err?.message so all friendly messages come from the interceptor.
 
 What would break if API contract changed:
 
@@ -295,4 +323,5 @@ What would break if API contract changed:
       -> errorMappingInterceptor maps to "You must be logged in to do this."
 
 Screenshots:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day15/screenshots/day15piece1
 
