@@ -4,7 +4,7 @@ import {
   provideHttpClientTesting
 } from '@angular/common/http/testing';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { QuotesService, Quote, QuoteDetail } from './quotes.service';
+import { QuotesService, Quote, QuoteDetail } from '../app/quotes.service';
 
 /**
  * Characterization tests — pin the real Week-1 API contract.
@@ -94,7 +94,6 @@ describe('QuotesService — contract characterization', () => {
   });
 
   it('GET /api/quotes/summary with invalid page returns 500 ProblemDetails shape', () => {
-    // Backend ExceptionMiddleware returns { title, status, detail } on exceptions
     const problemDetails = {
       title: 'Server Error',
       status: 500,
@@ -111,7 +110,6 @@ describe('QuotesService — contract characterization', () => {
     const req = httpMock.expectOne(r => r.url.includes('/api/quotes/summary'));
     req.flush(problemDetails, { status: 500, statusText: 'Server Error' });
 
-    // Pins the ProblemDetails shape — title, status, detail fields must exist
     expect(errorBody!.title).toBe('Server Error');
     expect(errorBody!.status).toBe(500);
     expect(errorBody!.detail).toContain('bind parameter');
