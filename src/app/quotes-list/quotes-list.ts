@@ -145,10 +145,12 @@ export class QuotesList implements OnInit {
         this.isLastPage.set(quotes.length < this.pageSize);
         this.loading.set(false);
       },
-      error: () => {
-        this.browseError.set('Could not reach the server. Is the backend running?');
-        this.loading.set(false);
-      }
+      error: (err) => {
+  this.browseError.set(err?.message ?? 'Could not reach the server.');
+  this.loading.set(false);
+}
+
+
     });
   }
 

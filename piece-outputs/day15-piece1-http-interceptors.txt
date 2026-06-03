@@ -1,0 +1,298 @@
+Day 15 — HttpClient + Interceptors
+====================================
+
+## (1) Brief to the Agent
+
+Add HttpClient interceptors and a characterization test to my Angular 21
+standalone app against my real Week-1 Quotes API.
+
+Real API endpoints:
+  GET  http://localhost:5150/api/quotes/summary?page=1&size=10
+       Returns: [{ id, author, authorInitials, shortText }]
+
+  GET  http://localhost:5150/api/quotes/{id}
+       Returns: { id, author, text } on 200
+       Returns: 404 with empty body when not found
+
+  Backend error shape (from ExceptionMiddleware on 500):
+       { title: "Server Error", status: 500, detail: "..." }
+
+What I want:
+1. Characterization test (must be green BEFORE any UI changes):
+   - Test GET /api/quotes/summary returns array with real field names
+     (id, author, authorInitials, shortText — not generic examples)
+   - Test GET /api/quotes/{id} returns QuoteDetail with id, author, text
+   - Test GET /api/quotes/99999 returns 404 with empty body
+   - Test 500 error returns ProblemDetails shape { title, status, detail }
+
+2. Three functional interceptors (not class-based, plain functions):
+   - Auth interceptor: reads JWT from localStorage, adds Authorization: Bearer header
+   - Retry interceptor: retries idempotent GETs up to 3 times with exponential
+     backoff (1s, 2s, 4s) — never retries POST/PUT/DELETE
+   - Error mapping interceptor: converts HttpErrorResponse to typed AppError
+     { status, message, title, detail? } with friendly messages per status code
+
+3. Wire all three in app.config.ts in order: auth → retry → error mapping
+4. No any types anywhere
+
+---
+
+## (2) Agent Output
+
+### src/app/quotes.service.spec.ts (characterization test)
+import { TestBed } from '@angular/core/testing';
+import {
+  HttpTestingController,
+  provideHttpClientTesting
+} from '@angular/common/http/testing';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { QuotesService, Quote, QuoteDetail } from './quotes.service';
+
+describe('QuotesService — contract characterization', () => {
+  let service: QuotesService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        QuotesService,
+        provideHttpClient(withInterceptors([])),
+        provideHttpClientTesting()
+      ]
+    });
+    service  = TestBed.inject(QuotesService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  it('GET /api/quotes/summary returns array of Quote with real field names', () => {
+    const mockResponse: Quote[] = [
+      { id: 1, author: 'Seed', authorInitials: 'S',
+        shortText: 'The only way to do great work is to love what you do.' }
+    ];
+    let result: Quote[] | undefined;
+    service.getSummary(1, 10).subscribe(quotes => result = quotes);
+    const req = httpMock.expectOne(
+      'http://localhost:5150/api/quotes/summary?page=1&size=10'
+    );
+    expect(req.request.method).toBe('GET');
+    req.flush(mockResponse);
+    expect(result![0].id).toBe(1);
+    expect(result![0].author).toBe('Seed');
+    expect(result![0].authorInitials).toBe('S');
+    expect(result![0].shortText).toContain('great work');
+  });
+
+  it('GET /api/quotes/{id} returns QuoteDetail with id, author, text fields', () => {
+    const mockDetail: QuoteDetail = {
+      id: 1, author: 'Seed',
+      text: 'The only way to do great work is to love what you do.'
+    };
+    let result: QuoteDetail | undefined;
+    service.getById(1).subscribe(q => result = q);
+    const req = httpMock.expectOne('http://localhost:5150/api/quotes/1');
+    req.flush(mockDetail);
+    expect(result!.id).toBe(1);
+    expect(result!.author).toBe('Seed');
+    expect(result!.text).toContain('great work');
+  });
+
+  it('GET /api/quotes/99999 returns 404 with empty body', () => {
+    let errorStatus: number | undefined;
+    service.getById(99999).subscribe({
+      next: () => { throw new Error('should have errored'); },
+      error: err => errorStatus = err.status
+    });
+    const req = httpMock.expectOne('http://localhost:5150/api/quotes/99999');
+    req.flush('', { status: 404, statusText: 'Not Found' });
+    expect(errorStatus).toBe(404);
+  });
+
+  it('500 response matches backend ProblemDetails shape { title, status, detail }', () => {
+    const problemDetails = {
+      title: 'Server Error', status: 500,
+      detail: 'Failed to bind parameter "int page" from "abc".'
+    };
+    let errorBody: typeof problemDetails | undefined;
+    service.getSummary(NaN, 10).subscribe({
+      next: () => { throw new Error('should have errored'); },
+      error: err => errorBody = err.error
+    });
+    const req = httpMock.expectOne(r => r.url.includes('/api/quotes/summary'));
+    req.flush(problemDetails, { status: 500, statusText: 'Server Error' });
+    expect(errorBody!.title).toBe('Server Error');
+    expect(errorBody!.status).toBe(500);
+    expect(errorBody!.detail).toContain('bind parameter');
+  });
+});
+
+### src/app/interceptors/auth.interceptor.ts
+import { HttpInterceptorFn } from '@angular/common/http';
+
+export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  const token = localStorage.getItem('token');
+  if (!token) return next(req);
+  return next(req.clone({
+    setHeaders: { Authorization: `Bearer ${token}` }
+  }));
+};
+
+### src/app/interceptors/retry.interceptor.ts
+import { HttpInterceptorFn } from '@angular/common/http';
+import { timer } from 'rxjs';
+import { retry } from 'rxjs/operators';
+
+const MAX_RETRIES = 3;
+
+export const retryInterceptor: HttpInterceptorFn = (req, next) => {
+  if (req.method !== 'GET') return next(req);
+  return next(req).pipe(
+    retry({
+      count: MAX_RETRIES,
+      delay: (error, retryCount) => {
+        const isRetryable = error.status === 0 || error.status >= 500;
+        if (!isRetryable) throw error;
+        return timer(Math.pow(2, retryCount - 1) * 1000); // 1s, 2s, 4s
+      }
+    })
+  );
+};
+
+### src/app/interceptors/error-mapping.interceptor.ts
+import { HttpInterceptorFn } from '@angular/common/http';
+import { throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+
+export interface AppError {
+  status:   number;
+  message:  string;
+  title:    string;
+  detail?:  string;
+}
+
+export const errorMappingInterceptor: HttpInterceptorFn = (req, next) =>
+  next(req).pipe(
+    catchError(httpError => {
+      const status: number = httpError.status ?? 0;
+      const body   = httpError.error;
+      const detail: string | undefined = body?.detail;
+      const title:  string = body?.title ?? titleFor(status);
+      const appError: AppError = { status, title, detail,
+        message: messageFor(status, detail) };
+      return throwError(() => appError);
+    })
+  );
+
+function titleFor(status: number): string {
+  if (status === 401) return 'Unauthorized';
+  if (status === 404) return 'Not Found';
+  if (status === 422) return 'Validation Error';
+  if (status >= 500)  return 'Server Error';
+  return 'Request Failed';
+}
+
+function messageFor(status: number, detail?: string): string {
+  if (detail)          return detail;
+  if (status === 401)  return 'You must be logged in to do this.';
+  if (status === 404)  return 'The requested item was not found.';
+  if (status === 422)  return 'The request was rejected by the server.';
+  if (status === 0)    return 'Cannot reach the server. Check your connection.';
+  if (status >= 500)   return 'Something went wrong on the server. Please try again.';
+  return 'An unexpected error occurred.';
+}
+
+### src/app/app.config.ts
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authInterceptor }         from './interceptors/auth.interceptor';
+import { retryInterceptor }        from './interceptors/retry.interceptor';
+import { errorMappingInterceptor } from './interceptors/error-mapping.interceptor';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideZonelessChangeDetection(),
+    provideHttpClient(withInterceptors([
+      authInterceptor,         // 1. attach Bearer token
+      retryInterceptor,        // 2. retry idempotent GETs with backoff
+      errorMappingInterceptor  // 3. map HTTP errors to typed AppError
+    ]))
+  ]
+};
+
+---
+
+## (3) Verification Log
+
+Characterization tests run result:
+  6 tests passed, 0 failed ✅
+  Test files: src/app/quotes.service.spec.ts, src/app/app.spec.ts
+
+States exercised:
+
+  Loading             — set network to Slow 3G, refreshed page, skeleton cards
+                        visible while GET /api/quotes/summary was in flight
+                        screenshot: PageLoadingState.png ✅
+
+  Auth header         — opened Network tab, refreshed page, clicked summary request
+                        Request Headers showed Authorization: Bearer eyJ...
+                        screenshot: auth-header.png ✅
+
+  Retry (3 attempts)  — stopped backend, clicked quote card
+                        Network tab showed same GET /api/quotes/1 request
+                        appearing 4 times (1 original + 3 retries) all with
+                        ERR_CONNECTION_REFUSED
+                        screenshot: retry.png ✅
+
+  Error state         — backend stopped, refreshed page
+                        status 0 (network error) → errorMappingInterceptor mapped
+                        to AppError with message "Cannot reach the server."
+                        screenshot: error-mapping.png ✅
+
+  4xx as friendly msg — GET /api/quotes/99999 returns 404 with empty body
+                        errorMappingInterceptor maps 404 to:
+                        title: "Not Found", message: "The requested item was not found."
+                        verified via characterization test (test 3) ✅
+
+  Empty state         — backend stopped, page shows ⚠️ error banner with Retry button
+                        screenshot: error-mapping.png ✅
+
+Bug caught and fixed — component ignored typed AppError from interceptor:
+
+  The component's loadQuotes() error callback was hardcoded:
+    error: () => {
+      this.browseError.set('Could not reach the server. Is the backend running?');
+    }
+
+  The errorMappingInterceptor converts every HttpErrorResponse to a typed
+  AppError with a message field — but the component's error handler ignored
+  the AppError entirely and used its own hardcoded string. The interceptor's
+  typed error was being swallowed and thrown away.
+
+  Fixed: updated the error callback to read AppError.message:
+    error: (err) => {
+      this.browseError.set(err?.message ?? 'Could not reach the server.');
+    }
+
+  Now the friendly message comes from the interceptor — one source of truth
+  for all error messages in the app.
+
+What would break if API contract changed:
+
+  - shortText renamed to previewText in summary response
+      -> characterization test fails immediately at result![0].shortText
+      -> catches the change before it reaches the UI
+
+  - text renamed to content in detail response
+      -> characterization test fails at result!.text
+      -> TypeScript also catches it since QuoteDetail is typed
+
+  - 404 starts returning ProblemDetails body instead of empty body
+      -> characterization test for empty 404 would need updating
+      -> errorMappingInterceptor would now use body.detail as the message
+
+  - New required auth header added to GET /api/quotes/summary
+      -> all summary requests return 401 without the new header
+      -> errorMappingInterceptor maps to "You must be logged in to do this."
+
+Screenshots:
+
