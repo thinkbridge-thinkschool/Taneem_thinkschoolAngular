@@ -8,7 +8,7 @@
 .back-btn {
   background: none;
   border: none;
-  color: #667eea;
+  color: #4338ca;
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
@@ -113,6 +113,6 @@
 
 .detail-id {
   font-size: 0.82rem;
-  color: #bbb;
+  color: #6b7280;
   margin: 0;
 }

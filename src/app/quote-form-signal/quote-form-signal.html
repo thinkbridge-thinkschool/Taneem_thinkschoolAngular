@@ -1,8 +1,12 @@
-<div class="form-page" [class.form-full-page]="isPage()">
+<div class="form-page" [class.form-full-page]="isPage()" [attr.role]="isPage() ? 'main' : null">
 <section class="form-panel" aria-labelledby="sf-heading" role="region">
   <button class="nav-back" (click)="router.navigate(['/quotes'])">← Back to Quotes</button>
   <div class="form-top">
-    <h2 id="sf-heading" class="form-title">Create a Quote <span class="form-badge">Signal Form</span></h2>
+    @if (isPage()) {
+      <h1 id="sf-heading" class="form-title">Create a Quote <span class="form-badge">Signal Form</span></h1>
+    } @else {
+      <h2 id="sf-heading" class="form-title">Create a Quote <span class="form-badge">Signal Form</span></h2>
+    }
     @if (auth.currentEmail) {
       <span class="form-user">{{ auth.currentEmail }}</span>
     }

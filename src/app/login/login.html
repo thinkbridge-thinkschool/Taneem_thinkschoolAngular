@@ -1,4 +1,4 @@
-<div class="login-wrapper" [class.login-full-page]="isPage()">
+<div class="login-wrapper" [class.login-full-page]="isPage()" [attr.role]="isPage() ? 'main' : null">
   <div class="login-card">
     <button class="nav-back" (click)="router.navigate(['/quotes'])">← Back to Quotes</button>
 

@@ -123,7 +123,6 @@
             (keydown.enter)="selectQuote(quote.id)"
             (keydown.space)="selectQuote(quote.id)"
             tabindex="0"
-            role="button"
             [attr.aria-label]="quote.author + ': ' + quote.shortText"
           >
             <div class="author-badge" [style.background]="authorColor(quote.author)">

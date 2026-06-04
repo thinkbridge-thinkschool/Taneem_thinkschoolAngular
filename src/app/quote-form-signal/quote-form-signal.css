@@ -27,7 +27,7 @@
 .nav-back {
   background: none;
   border: none;
-  color: #667eea;
+  color: #4338ca;
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -49,7 +49,7 @@
 
 .form-user {
   font-size: 0.78rem;
-  color: #9ca3af;
+  color: #6b7280;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -70,7 +70,7 @@
   font-size: 0.7rem;
   font-weight: 600;
   background: #f0fdf4;
-  color: #16a34a;
+  color: #166534;
   border: 1px solid #bbf7d0;
   padding: 0.15rem 0.5rem;
   border-radius: 99px;
@@ -136,7 +136,7 @@
 
 .field-textarea { resize: vertical; min-height: 100px; }
 
-.field-hint           { font-size: 0.78rem; color: #9ca3af; transition: color 0.2s; }
+.field-hint           { font-size: 0.78rem; color: #6b7280; transition: color 0.2s; }
 .field-hint.hint-warn { color: #dc2626; font-weight: 500; }
 .field-error { font-size: 0.82rem; color: #dc2626; font-weight: 500; }
 
@@ -175,7 +175,7 @@
 .btn-signout {
   background: none;
   border: none;
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 0.82rem;
   cursor: pointer;
   padding: 0.4rem 0.5rem;
