@@ -187,33 +187,34 @@ States exercised:
 
   Loading           — hard refresh with Slow 3G throttling
                       skeleton cards visible before quotes loaded
-                      screenshot: loading-state.png ✅
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/loading-state.png ✅
 
   Cache works       — loaded /quotes, clicked quote card, clicked Back
                       Network tab showed NO new summary request on return
                       only detail requests (2, 4, 2) visible — served from store
-                      screenshot: cache-works.png ✅
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/cache-works.png ✅
 
   Error state       — stopped backend, refreshed page
                       "Could not load quotes / Cannot reach the server." banner shown
                       Retry button visible
-                      screenshot: error-state.png ✅
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/error-state.png ✅
 
   Retry (force)     — restarted backend, clicked Retry
                       loadQuotes(true) bypasses browseLoaded cache flag
                       quotes reloaded successfully
-                      screenshot: retry-works.png ✅
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/retry-works.png ✅
 
   Cache bust        — created quote "Armaan Jain / Food heals depression..."
                       navigated back to /quotes
                       bustCache() cleared browseLoaded + allQuotes
                       "Searching across all quotes..." showed (allQuotes rebuilding)
                       searched "Armaan Jain" — new quote appeared in results
-                      screenshots: cache-bust-loading.png + cache-bust-result.png ✅
+                      screenshots: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/cache-bust-loading.png
+                      https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/cache-bust-result.png ✅
 
   Search            — typed "Aristotle" — author chips shown with count
                       results filtered from allQuotes in store, not from API
-                      screenshot: search-works.png ✅
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/search-works.png ✅
 
 Bug caught and fixed — agent did not bust allQuotes cache after creating a quote
 
@@ -256,4 +257,7 @@ What would break if API contract changed:
       → DOM identity lost, list re-renders every update
 
 CI run:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/actions/runs/26945474197/job/79497235121
 
+Screenshot Link:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/day16/screenshots/day16piece2
