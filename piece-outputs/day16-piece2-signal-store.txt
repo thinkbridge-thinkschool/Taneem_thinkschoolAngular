@@ -1,0 +1,259 @@
+Day 16 — State management, signals first
+=========================================
+
+## (1) Brief to the Agent
+Build a QuotesStore signal service for my Angular 21 standalone app against
+my real Week-1 Quotes API. Extract all state currently in the QuotesList
+component into a root-scoped service so state survives navigation.
+Real API endpoints:
+  GET  http://localhost:5150/api/quotes/summary?page=1&size=10
+       Returns: [{ id, author, authorInitials, shortText }]
+
+  POST http://localhost:5150/api/quotes
+       Body: { author, text }
+       Creates a new quote — store must bust cache after success
+What I want:
+- Injectable service with providedIn: 'root' so state lives for the app lifetime
+- Signals: browseQuotes, allQuotes, filterText, page, loading, searchLoading,
+  isLastPage, browseError, searchPage
+- Computed signals: isSearchMode, filteredQuotes, visibleQuotes, totalBrowsePages,
+  totalSearchPages, isEmpty, authorStats
+- Cache flag (browseLoaded) — skip re-fetch on loadQuotes() if data is already there
+- loadQuotes(force = false) — force=true bypasses the cache (used by Retry button)
+- loadAllQuotes() — dynamic pagination with expand + reduce, fetches all quotes
+- bustCache() — called after POST /api/quotes so new quote appears on next visit
+- Filter logic: startsWith match, sorted alphabetically
+
+QuotesList component should inject QuotesStore and read from it instead of
+managing its own signals. Navigating away and back should NOT trigger a re-fetch.
+
+---
+
+## (2) Agent Output
+
+### src/app/quotes.store.ts
+import { computed, inject, Injectable, signal } from '@angular/core';
+import { EMPTY, expand, reduce } from 'rxjs';
+import { Quote, QuotesService } from './quotes.service';
+
+@Injectable({ providedIn: 'root' })
+export class QuotesStore {
+  private quotesService = inject(QuotesService);
+
+  readonly pageSize = 10;
+
+  // ── Signals ────────────────────────────────────────────────────────────────
+  browseQuotes  = signal<Quote[]>([]);
+  allQuotes     = signal<Quote[]>([]);
+  filterText    = signal('');
+  page          = signal(1);
+  loading       = signal(false);
+  searchLoading = signal(false);
+  isLastPage    = signal(false);
+  browseError   = signal<string | null>(null);
+  searchPage    = signal(1);
+
+  // Cache flag — true after first successful browse fetch
+  private browseLoaded = false;
+
+  // ── Computeds ──────────────────────────────────────────────────────────────
+  isSearchMode = computed(() => this.filterText().trim().length > 0);
+
+  filteredQuotes = computed(() => {
+    if (this.isSearchMode()) {
+      const text = this.filterText().toLowerCase();
+      return this.allQuotes()
+        .filter(q => q.author.toLowerCase().startsWith(text))
+        .sort((a, b) => a.author.localeCompare(b.author));
+    }
+    return this.browseQuotes();
+  });
+
+  totalFilteredCount = computed(() => this.filteredQuotes().length);
+  totalSearchPages   = computed(() => Math.ceil(this.totalFilteredCount() / this.pageSize) || 1);
+  totalBrowsePages   = computed(() =>
+    this.allQuotes().length > 0 ? Math.ceil(this.allQuotes().length / this.pageSize) : null
+  );
+
+  visibleQuotes = computed(() => {
+    if (!this.isSearchMode()) return this.filteredQuotes();
+    const start = (this.searchPage() - 1) * this.pageSize;
+    return this.filteredQuotes().slice(start, start + this.pageSize);
+  });
+
+  displayCount = computed(() => this.visibleQuotes().length);
+
+  isEmpty = computed(() =>
+    !this.loading() && !this.searchLoading() && this.filteredQuotes().length === 0
+  );
+
+  authorStats = computed(() => {
+    if (!this.isSearchMode() || this.filteredQuotes().length === 0) return [];
+    const map = new Map<string, number>();
+    this.filteredQuotes().forEach(q => map.set(q.author, (map.get(q.author) ?? 0) + 1));
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([author, count]) => ({ author, count }));
+  });
+
+  // ── Methods ────────────────────────────────────────────────────────────────
+  loadQuotes(force = false) {
+    if (this.browseLoaded && !force) return;
+    this.loading.set(true);
+    this.browseError.set(null);
+    this.quotesService.getSummary(this.page(), this.pageSize).subscribe({
+      next: quotes => {
+        this.browseQuotes.set(quotes);
+        this.isLastPage.set(quotes.length < this.pageSize);
+        this.loading.set(false);
+        this.browseLoaded = true;
+      },
+      error: err => {
+        this.browseError.set(err?.message ?? 'Could not reach the server.');
+        this.loading.set(false);
+      }
+    });
+  }
+
+  loadAllQuotes() {
+    if (this.allQuotes().length > 0) return;
+    this.searchLoading.set(true);
+    const fetchSize = 100;
+    let currentPage = 1;
+    this.quotesService.getSummary(currentPage, fetchSize).pipe(
+      expand(quotes => {
+        if (quotes.length < fetchSize) return EMPTY;
+        currentPage++;
+        return this.quotesService.getSummary(currentPage, fetchSize);
+      }),
+      reduce((acc, quotes) => [...acc, ...quotes], [] as Quote[])
+    ).subscribe({
+      next: quotes => { this.allQuotes.set(quotes); this.searchLoading.set(false); },
+      error: ()    => { this.searchLoading.set(false); }
+    });
+  }
+
+  // Bug: allQuotes not cleared — new quotes won't appear in search after creation
+  bustCache() {
+    this.browseLoaded = false;
+    this.page.set(1);
+  }
+
+  nextPage() {
+    if (!this.isLastPage()) { this.page.update(p => p + 1); this.browseLoaded = false; this.loadQuotes(true); }
+  }
+
+  prevPage() {
+    if (this.page() > 1) { this.page.update(p => p - 1); this.browseLoaded = false; this.loadQuotes(true); }
+  }
+
+  nextSearchPage() { if (this.searchPage() < this.totalSearchPages()) this.searchPage.update(p => p + 1); }
+  prevSearchPage() { if (this.searchPage() > 1) this.searchPage.update(p => p - 1); }
+
+  setFilter(value: string) { this.filterText.set(value); this.searchPage.set(1); if (value.trim()) this.loadAllQuotes(); }
+  clearFilter()             { this.filterText.set(''); }
+  filterByAuthor(author: string) { this.filterText.set(author); }
+}
+
+### src/app/quotes-list/quotes-list.ts (after refactor)
+@Component({ selector: 'app-quotes-list', standalone: true, imports: [] })
+export class QuotesList implements OnInit {
+  store  = inject(QuotesStore);  // all state lives here
+  auth   = inject(AuthService);
+  router = inject(Router);
+
+  ngOnInit() {
+    this.store.loadQuotes();    // no-op if cache is fresh
+    this.store.loadAllQuotes(); // no-op if already loaded
+  }
+}
+
+### NgRx threshold rule
+
+I will move to NgRx when the project gets more complex and has multiple more
+states to maintain across many features. Right now signals in a service work
+fine because there are limited states and the codebase is small enough to
+manage easily. When the app grows to the point where many features share
+overlapping state, multiple teams are working on it, or state changes in one
+place unexpectedly affect unrelated parts of the app — that's when NgRx
+becomes worth the added complexity. For this app today, signals are the
+right tool.
+
+---
+
+## (3) Verification Log
+
+States exercised:
+
+  Loading           — hard refresh with Slow 3G throttling
+                      skeleton cards visible before quotes loaded
+                      screenshot: loading-state.png ✅
+
+  Cache works       — loaded /quotes, clicked quote card, clicked Back
+                      Network tab showed NO new summary request on return
+                      only detail requests (2, 4, 2) visible — served from store
+                      screenshot: cache-works.png ✅
+
+  Error state       — stopped backend, refreshed page
+                      "Could not load quotes / Cannot reach the server." banner shown
+                      Retry button visible
+                      screenshot: error-state.png ✅
+
+  Retry (force)     — restarted backend, clicked Retry
+                      loadQuotes(true) bypasses browseLoaded cache flag
+                      quotes reloaded successfully
+                      screenshot: retry-works.png ✅
+
+  Cache bust        — created quote "Armaan Jain / Food heals depression..."
+                      navigated back to /quotes
+                      bustCache() cleared browseLoaded + allQuotes
+                      "Searching across all quotes..." showed (allQuotes rebuilding)
+                      searched "Armaan Jain" — new quote appeared in results
+                      screenshots: cache-bust-loading.png + cache-bust-result.png ✅
+
+  Search            — typed "Aristotle" — author chips shown with count
+                      results filtered from allQuotes in store, not from API
+                      screenshot: search-works.png ✅
+
+Bug caught and fixed — agent did not bust allQuotes cache after creating a quote
+
+  The agent's QuotesStore.bustCache() only cleared browseLoaded and reset page:
+    bustCache() {
+      this.browseLoaded = false;
+      this.page.set(1);
+    }
+
+  allQuotes was NOT cleared. After creating a new quote and navigating back,
+  searching for the new author returned zero results because the old allQuotes
+  cache (510 quotes) was still in memory — the new quote wasn't in it.
+
+  Fixed: added this.allQuotes.set([]) to bustCache():
+    bustCache() {
+      this.browseLoaded = false;
+      this.allQuotes.set([]);  // ← added
+      this.page.set(1);
+    }
+
+  Evidence: cache-bust-result.png shows new quote "Armaan Jain" appearing
+  in search results after the fix. Without the fix it would show 0 results.
+
+What would break if API contract changed:
+
+  - shortText renamed in summary response
+      → Quote interface catches at compile time (TypeScript build error)
+      → filteredQuotes computed and visibleQuotes computed both break
+
+  - page/size query param renamed
+      → getSummary(page, size) sends wrong param names → API returns all or errors
+      → browseQuotes signal gets wrong data, pagination breaks silently
+
+  - POST /api/quotes field renamed (author → authorName)
+      → QuoteFormSignal sends { author, text } → 422 from server
+      → bustCache() never gets called → stale cache stays, no new quote in list
+
+  - id field removed from summary response
+      → @for (quote of store.visibleQuotes(); track quote.id) breaks
+      → DOM identity lost, list re-renders every update
+
+CI run:
+

@@ -1,10 +1,9 @@
 import {
-  Component, computed, effect, inject, signal, OnInit, viewChild, ElementRef
+  Component, inject, OnInit, viewChild, ElementRef
 } from '@angular/core';
-import { EMPTY, expand, reduce } from 'rxjs';
 import { Router } from '@angular/router';
-import { Quote, QuotesService } from '../quotes.service';
 import { AuthService } from '../auth.service';
+import { QuotesStore } from '../quotes.store';
 
 @Component({
   selector: 'app-quotes-list',
@@ -14,209 +13,41 @@ import { AuthService } from '../auth.service';
   styleUrl: './quotes-list.css'
 })
 export class QuotesList implements OnInit {
-  private quotesService = inject(QuotesService);
-  auth     = inject(AuthService);
+  // Store holds all state — component just reads and delegates
+  store  = inject(QuotesStore);
+  auth   = inject(AuthService);
   router = inject(Router);
 
-  // Template ref for the search input — used to clear value imperatively
   searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
-  readonly pageSize = 10;
-
-  // Signal 1 — paginated quotes for browse mode
-  browseQuotes = signal<Quote[]>([]);
-
-  // Signal 2 — all quotes loaded once for search mode (lazy, fetched on first search)
-  allQuotes = signal<Quote[]>([]);
-
-  // Signal 3 — user's filter input
-  filterText = signal('');
-
-  // Signal 4 — current page number
-  page = signal(1);
-
-  // Signal 5 — loading state (browse)
-  loading = signal(false);
-
-  // Signal 6 — loading state (first-time search load)
-  searchLoading = signal(false);
-
-  // Signal 7 — true when browse page returned fewer items than pageSize → no more pages
-  isLastPage = signal(false);
-
-  // Signal — set when the initial browse fetch fails (backend down)
-  browseError = signal<string | null>(null);
-
-  // Signal 8 — current page within search results (client-side)
-  searchPage = signal(1);
-
-
-
-  // Computed — are we in search mode?
-  isSearchMode = computed(() => this.filterText().trim().length > 0);
-
-  // Computed — quotes where the author name STARTS WITH the search term
-  // sorted alphabetically within results
-  filteredQuotes = computed(() => {
-    if (this.isSearchMode()) {
-      const text = this.filterText().toLowerCase();
-      return this.allQuotes()
-        .filter(q => q.author.toLowerCase().startsWith(text))
-        .sort((a, b) => a.author.localeCompare(b.author));
-    }
-    return this.browseQuotes();
-  });
-
-  // Computed — total search result count (before pagination)
-  totalFilteredCount = computed(() => this.filteredQuotes().length);
-
-  // Computed — total pages in search mode
-  totalSearchPages = computed(() =>
-    Math.ceil(this.totalFilteredCount() / this.pageSize) || 1
-  );
-
-  // Computed — total pages in browse mode (known once allQuotes is loaded)
-  totalBrowsePages = computed(() =>
-    this.allQuotes().length > 0
-      ? Math.ceil(this.allQuotes().length / this.pageSize)
-      : null
-  );
-
-  // Computed — the slice shown on the current search page
-  visibleQuotes = computed(() => {
-    if (!this.isSearchMode()) return this.filteredQuotes();
-    const start = (this.searchPage() - 1) * this.pageSize;
-    return this.filteredQuotes().slice(start, start + this.pageSize);
-  });
-
-  // Computed — count shown on current page
-  displayCount = computed(() => this.visibleQuotes().length);
-
-  // Computed — true when nothing to show (not mid-load)
-  isEmpty = computed(() =>
-    !this.loading() && !this.searchLoading() && this.filteredQuotes().length === 0
-  );
-
-  // Computed — per-author breakdown across ALL filtered results (not just current page)
-  authorStats = computed(() => {
-    if (!this.isSearchMode() || this.filteredQuotes().length === 0) return [];
-    const map = new Map<string, number>();
-    this.filteredQuotes().forEach(q => map.set(q.author, (map.get(q.author) ?? 0) + 1));
-    return Array.from(map.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([author, count]) => ({ author, count }));
-  });
-
-  constructor() {
-    // Reset search page whenever the filter text changes
-    effect(() => {
-      this.filterText();
-      this.searchPage.set(1);
-    });
-
-    effect(() => {
-      console.log(
-        `Filter: "${this.filterText()}" → showing ${this.totalFilteredCount()} of ` +
-        `${this.isSearchMode() ? this.allQuotes().length : this.browseQuotes().length} quotes`
-      );
-    });
-  }
-
   ngOnInit() {
-    this.loadQuotes();
-    this.loadAllQuotes(); // background fetch for total count + search
-  }
-
-  loadQuotes() {
-    this.loading.set(true);
-    this.browseError.set(null);
-    this.quotesService.getSummary(this.page(), this.pageSize).subscribe({
-      next: quotes => {
-        this.browseQuotes.set(quotes);
-        this.isLastPage.set(quotes.length < this.pageSize);
-        this.loading.set(false);
-      },
-      error: (err) => {
-  this.browseError.set(err?.message ?? 'Could not reach the server.');
-  this.loading.set(false);
-}
-
-
-    });
-  }
-
-  // Fetches ALL quotes dynamically page by page until the API returns
-  // fewer items than the page size — no hardcoded total needed
-  loadAllQuotes() {
-    if (this.allQuotes().length > 0) return;
-    this.searchLoading.set(true);
-
-    const fetchSize = 100;
-    let currentPage = 1;
-
-    this.quotesService.getSummary(currentPage, fetchSize).pipe(
-      expand(quotes => {
-        if (quotes.length < fetchSize) return EMPTY; // last page reached
-        currentPage++;
-        return this.quotesService.getSummary(currentPage, fetchSize);
-      }),
-      reduce((acc, quotes) => [...acc, ...quotes], [] as Quote[])
-    ).subscribe({
-      next: quotes => { this.allQuotes.set(quotes); this.searchLoading.set(false); },
-      error: ()    => { this.searchLoading.set(false); }
-    });
+    this.store.loadQuotes();     // no-op if cache is fresh
+    this.store.loadAllQuotes();  // no-op if already loaded
   }
 
   onFilterChange(event: Event) {
     const value = (event.target as HTMLInputElement).value;
-    this.filterText.set(value);
-    if (value.trim()) this.loadAllQuotes();
+    this.store.setFilter(value);
   }
 
   clearFilter() {
-    this.filterText.set('');
+    this.store.clearFilter();
     const el = this.searchInputRef()?.nativeElement;
     if (el) el.value = '';
   }
 
-  // Browse mode pagination (API-driven)
-  nextPage() {
-    if (!this.isLastPage()) { this.page.update(p => p + 1); this.loadQuotes(); }
-  }
+  selectQuote(id: number) { this.router.navigate(['/quotes', id]); }
 
-  prevPage() {
-    if (this.page() > 1) { this.page.update(p => p - 1); this.loadQuotes(); }
-  }
-
-  // Search mode pagination (client-side slice)
-  nextSearchPage() {
-    if (this.searchPage() < this.totalSearchPages()) this.searchPage.update(p => p + 1);
-  }
-
-  prevSearchPage() {
-    if (this.searchPage() > 1) this.searchPage.update(p => p - 1);
-  }
-
-  goToCreate() {
-    this.router.navigate(['/quotes/create']);
-  }
+  goToCreate() { this.router.navigate(['/quotes/create']); }
 
   filterByAuthor(author: string) {
-    this.filterText.set(author);
+    this.store.filterByAuthor(author);
     const el = this.searchInputRef()?.nativeElement;
     if (el) el.value = author;
   }
 
-  selectQuote(id: number) {
-    this.router.navigate(['/quotes', id]);
-  }
-
-  // Deterministic color per author — same author always gets the same color
   authorColor(author: string): string {
-    const palette = [
-      '#6c63ff', '#e55a4e', '#43b89c', '#f5a623',
-      '#4a90d9', '#9b59b6', '#e67e22', '#27ae60'
-    ];
+    const palette = ['#6c63ff','#e55a4e','#43b89c','#f5a623','#4a90d9','#9b59b6','#e67e22','#27ae60'];
     const code = (author.charCodeAt(0) ?? 0) + (author.charCodeAt(1) ?? 0);
     return palette[code % palette.length];
   }

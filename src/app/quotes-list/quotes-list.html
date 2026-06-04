@@ -30,40 +30,40 @@
         placeholder="Search by author or quote..."
         (input)="onFilterChange($event)"
       />
-      @if (isSearchMode()) {
+      @if (store.isSearchMode()) {
         <button class="clear-btn" (click)="clearFilter()" title="Clear search">✕</button>
       }
     </div>
 
     <!-- Stats bar -->
     <div class="stats-bar">
-      @if (isSearchMode()) {
+      @if (store.isSearchMode()) {
         <span class="stats-text">
-          @if (searchLoading()) {
+          @if (store.searchLoading()) {
             <span class="loading-text">Searching across all quotes…</span>
           } @else {
-            <strong>{{ totalFilteredCount() }}</strong> result{{ totalFilteredCount() === 1 ? '' : 's' }}
-            for "<em>{{ filterText() }}</em>"
+            <strong>{{ store.totalFilteredCount() }}</strong> result{{ store.totalFilteredCount() === 1 ? '' : 's' }}
+            for "<em>{{ store.filterText() }}</em>"
           }
         </span>
       } @else {
         <span class="stats-text">
-          Page <strong>{{ page() }}</strong>
-          @if (totalBrowsePages()) {
-            of <strong>{{ totalBrowsePages() }}</strong>
+          Page <strong>{{ store.page() }}</strong>
+          @if (store.totalBrowsePages()) {
+            of <strong>{{ store.totalBrowsePages() }}</strong>
           }
-          @if (isLastPage()) {
+          @if (store.isLastPage()) {
             <span class="last-page-tag">Last page</span>
           }
         </span>
-        <span class="stats-right">{{ displayCount() }} quotes on this page</span>
+        <span class="stats-right">{{ store.displayCount() }} quotes on this page</span>
       }
     </div>
 
     <!-- Author breakdown (search mode only) -->
-    @if (isSearchMode() && authorStats().length > 0) {
+    @if (store.isSearchMode() && store.authorStats().length > 0) {
       <div class="author-breakdown">
-        @for (stat of authorStats(); track stat.author) {
+        @for (stat of store.authorStats(); track stat.author) {
           <button
             class="author-chip"
             [style.background]="authorColor(stat.author)"
@@ -78,7 +78,7 @@
     }
 
     <!-- Loading skeleton -->
-    @if (loading()) {
+    @if (store.loading()) {
       <div class="skeleton-list">
         @for (n of [1, 2, 3, 4, 5]; track n) {
           <div class="skeleton-card">
@@ -93,29 +93,29 @@
     }
 
     <!-- Browse error — backend is down -->
-    @if (browseError() && !loading()) {
+    @if (store.browseError() && !store.loading()) {
       <div class="empty-state">
         <div class="empty-icon">⚠️</div>
         <p class="empty-title">Could not load quotes</p>
-        <p class="empty-sub">{{ browseError() }}</p>
-        <button class="reset-btn" (click)="loadQuotes()">Retry</button>
+        <p class="empty-sub">{{ store.browseError() }}</p>
+        <button class="reset-btn" (click)="store.loadQuotes(true)">Retry</button>
       </div>
     }
 
     <!-- Empty state — search returned nothing -->
-    @if (isEmpty() && !browseError()) {
+    @if (store.isEmpty() && !store.browseError()) {
       <div class="empty-state">
         <div class="empty-icon">🔍</div>
         <p class="empty-title">No quotes found</p>
-        <p class="empty-sub">No results for "<em>{{ filterText() }}</em>" — try a different term</p>
+        <p class="empty-sub">No results for "<em>{{ store.filterText() }}</em>"</p>
         <button class="reset-btn" (click)="clearFilter()">Clear search</button>
       </div>
     }
 
     <!-- Quotes list -->
-    @if (!loading() && !searchLoading() && !isEmpty()) {
+    @if (!store.loading() && !store.searchLoading() && !store.isEmpty()) {
       <ul class="quotes-list">
-        @for (quote of visibleQuotes(); track quote.id) {
+        @for (quote of store.visibleQuotes(); track quote.id) {
           <li
             class="quote-card"
             [style.--accent]="authorColor(quote.author)"
@@ -139,32 +139,32 @@
       </ul>
     }
 
-    <!-- Pagination — browse mode (API-driven) -->
-    @if (!isSearchMode() && !loading()) {
+    <!-- Pagination — browse mode -->
+    @if (!store.isSearchMode() && !store.loading()) {
       <div class="pagination">
-        <button class="page-btn" (click)="prevPage()" [disabled]="page() === 1">
+        <button class="page-btn" (click)="store.prevPage()" [disabled]="store.page() === 1">
           ← Prev
         </button>
         <span class="page-indicator">
-          Page <strong>{{ page() }}</strong>
-          @if (isLastPage()) { · Last page }
+          Page <strong>{{ store.page() }}</strong>
+          @if (store.isLastPage()) { · Last page }
         </span>
-        <button class="page-btn" (click)="nextPage()" [disabled]="isLastPage()">
+        <button class="page-btn" (click)="store.nextPage()" [disabled]="store.isLastPage()">
           Next →
         </button>
       </div>
     }
 
-    <!-- Pagination — search mode (client-side slice) -->
-    @if (isSearchMode() && !searchLoading() && totalSearchPages() > 1) {
+    <!-- Pagination — search mode -->
+    @if (store.isSearchMode() && !store.searchLoading() && store.totalSearchPages() > 1) {
       <div class="pagination">
-        <button class="page-btn" (click)="prevSearchPage()" [disabled]="searchPage() === 1">
+        <button class="page-btn" (click)="store.prevSearchPage()" [disabled]="store.searchPage() === 1">
           ← Prev
         </button>
         <span class="page-indicator">
-          Page <strong>{{ searchPage() }}</strong> of <strong>{{ totalSearchPages() }}</strong>
+          Page <strong>{{ store.searchPage() }}</strong> of <strong>{{ store.totalSearchPages() }}</strong>
         </span>
-        <button class="page-btn" (click)="nextSearchPage()" [disabled]="searchPage() === totalSearchPages()">
+        <button class="page-btn" (click)="store.nextSearchPage()" [disabled]="store.searchPage() === store.totalSearchPages()">
           Next →
         </button>
       </div>
@@ -172,4 +172,3 @@
 
   </main>
 </div>
-

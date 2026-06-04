@@ -2,6 +2,7 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import { Router } from '@angular/router';
 import { QuotesService } from '../quotes.service';
 import { AuthService } from '../auth.service';
+import { QuotesStore } from '../quotes.store';
 
 @Component({
   selector: 'app-quote-form-signal',
@@ -14,6 +15,7 @@ export class QuoteFormSignal {
   private quotesService = inject(QuotesService);
   auth   = inject(AuthService);
   router = inject(Router);
+  private store = inject(QuotesStore);
 
   // true when used as a full route page, false when embedded in quotes list
   isPage = input(false);
@@ -105,6 +107,7 @@ export class QuoteFormSignal {
       next: () => {
         this.submitting.set(false);
         this.success.set(true);
+        this.store.bustCache(); // bust cache so new quote appears in list
         this.authorValue.set('');
         this.textValue.set('');
         this.authorTouched.set(false);
