@@ -1,0 +1,35 @@
+<div class="detail-page">
+
+  <button class="back-btn" (click)="goBack()">← Back to Quotes</button>
+
+  @if (loading()) {
+    <div class="detail-skeleton">
+      <div class="ds-avatar"></div>
+      <div class="ds-lines">
+        <div class="ds-line short"></div>
+        <div class="ds-line long"></div>
+        <div class="ds-line long"></div>
+        <div class="ds-line medium"></div>
+      </div>
+    </div>
+  }
+
+  @if (error()) {
+    <div class="detail-error">
+      <p class="error-icon">⚠️</p>
+      <p class="error-msg">{{ error() }}</p>
+    </div>
+  }
+
+  @if (!loading() && !error() && detail()) {
+    <div class="detail-card">
+      <div class="detail-badge" [style.background]="authorColor(detail()!.author)">
+        {{ detail()!.author[0] }}
+      </div>
+      <h1 class="detail-author">{{ detail()!.author }}</h1>
+      <blockquote class="detail-text">"{{ detail()!.text }}"</blockquote>
+      <p class="detail-id">Quote #{{ detail()!.id }}</p>
+    </div>
+  }
+
+</div>

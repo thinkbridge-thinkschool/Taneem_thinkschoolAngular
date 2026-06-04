@@ -209,8 +209,9 @@
   font-weight: 500;
   padding: 0.3rem 0.8rem 0.3rem 0.7rem;
   border-radius: 99px;
+  border: none;
   transition: filter 0.15s, transform 0.15s;
-  cursor: default;
+  cursor: pointer;
   user-select: none;
 }
 

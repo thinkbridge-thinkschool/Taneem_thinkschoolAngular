@@ -1,5 +1,6 @@
-import { Component, inject, output, signal } from '@angular/core';
+import { Component, inject, input, output, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../auth.service';
 
 @Component({
@@ -11,11 +12,15 @@ import { AuthService } from '../auth.service';
 })
 export class Login {
   private authService = inject(AuthService);
+  router      = inject(Router);
+  private route       = inject(ActivatedRoute);
 
+  isPage   = input(false);
   loggedIn = output<void>();
 
-  submitting = signal(false);
-  error      = signal<string | null>(null);
+  submitting   = signal(false);
+  error        = signal<string | null>(null);
+  showPassword = signal(false);
 
   form = new FormGroup({
     email: new FormControl('', {
@@ -44,6 +49,8 @@ export class Login {
       next: () => {
         this.submitting.set(false);
         this.loggedIn.emit();
+        const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') ?? '/quotes';
+        this.router.navigateByUrl(returnUrl);
       },
       error: err => {
         this.submitting.set(false);

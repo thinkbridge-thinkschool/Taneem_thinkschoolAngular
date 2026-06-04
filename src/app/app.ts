@@ -1,10 +1,10 @@
 import { Component } from '@angular/core';
-import { QuotesList } from './quotes-list/quotes-list';
+import { RouterOutlet } from '@angular/router';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [QuotesList],
-  template: `<app-quotes-list />`
+  imports: [RouterOutlet],
+  template: `<router-outlet />`
 })
 export class App {}

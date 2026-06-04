@@ -2,21 +2,21 @@ import {
   Component, computed, effect, inject, signal, OnInit, viewChild, ElementRef
 } from '@angular/core';
 import { EMPTY, expand, reduce } from 'rxjs';
-import { Quote, QuoteDetail, QuotesService } from '../quotes.service';
-import { QuoteFormSignal } from '../quote-form-signal/quote-form-signal';
+import { Router } from '@angular/router';
+import { Quote, QuotesService } from '../quotes.service';
 import { AuthService } from '../auth.service';
-import { Login } from '../login/login';
 
 @Component({
   selector: 'app-quotes-list',
   standalone: true,
-  imports: [QuoteFormSignal, Login],
+  imports: [],
   templateUrl: './quotes-list.html',
   styleUrl: './quotes-list.css'
 })
 export class QuotesList implements OnInit {
   private quotesService = inject(QuotesService);
   auth     = inject(AuthService);
+  router = inject(Router);
 
   // Template ref for the search input — used to clear value imperatively
   searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
@@ -50,18 +50,7 @@ export class QuotesList implements OnInit {
   // Signal 8 — current page within search results (client-side)
   searchPage = signal(1);
 
-  // Form toggle
-  showForm  = signal(false);
-  showLogin = signal(false);
 
-  // Detail signals
-  selectedId    = signal<number | null>(null);
-  detail        = signal<QuoteDetail | null>(null);
-  detailLoading = signal(false);
-  detailError   = signal<string | null>(null);
-
-  // Race condition guard — incremented on every selectQuote() call
-  private detailRequestId = 0;
 
   // Computed — are we in search mode?
   isSearchMode = computed(() => this.filterText().trim().length > 0);
@@ -208,56 +197,18 @@ export class QuotesList implements OnInit {
     if (this.searchPage() > 1) this.searchPage.update(p => p - 1);
   }
 
-  toggleForm() {
-    // If anything is open — close everything
-    if (this.showForm() || this.showLogin()) {
-      this.showForm.set(false);
-      this.showLogin.set(false);
-      return;
-    }
-    // Opening — check login
-    if (!this.auth.isLoggedIn()) {
-      this.showLogin.set(true);
-    } else {
-      this.showForm.set(true);
-    }
+  goToCreate() {
+    this.router.navigate(['/quotes/create']);
   }
 
-  onQuoteCreated() {
-    // Refresh list in background — form stays open
-    this.page.set(1);
-    this.allQuotes.set([]);
-    this.loadQuotes();
-    this.loadAllQuotes();
+  filterByAuthor(author: string) {
+    this.filterText.set(author);
+    const el = this.searchInputRef()?.nativeElement;
+    if (el) el.value = author;
   }
 
   selectQuote(id: number) {
-    this.selectedId.set(id);
-    this.detail.set(null);
-    this.detailError.set(null);
-
-    const requestId = ++this.detailRequestId;
-    this.detailLoading.set(true);
-
-    this.quotesService.getById(id).subscribe({
-      next: quote => {
-        if (requestId !== this.detailRequestId) return; // stale — a newer click already fired
-        this.detail.set(quote);
-        this.detailLoading.set(false);
-      },
-      error: (err) => {
-        if (requestId !== this.detailRequestId) return;
-        this.detailError.set(err?.message ?? 'Could not load quote. Try again.');
-        this.detailLoading.set(false);
-      }
-    });
-  }
-
-  closeDetail() {
-    this.selectedId.set(null);
-    this.detail.set(null);
-    this.detailError.set(null);
-    this.detailLoading.set(false);
+    this.router.navigate(['/quotes', id]);
   }
 
   // Deterministic color per author — same author always gets the same color

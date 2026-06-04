@@ -4,9 +4,7 @@
   <header class="app-header">
     <h1 class="app-title">ThinkSchool Quotes</h1>
     <p class="app-subtitle">Ideas from the greatest minds, for curious learners</p>
-    <button class="btn-new-quote" (click)="toggleForm()" [attr.aria-expanded]="showForm()">
-      @if (showForm() || showLogin()) { ✕ Close } @else { + New Quote }
-    </button>
+    <button class="btn-new-quote" (click)="goToCreate()">+ New Quote</button>
   </header>
 
   <!-- ── Main content ── -->
@@ -15,22 +13,9 @@
     @if (auth.sessionExpired()) {
       <div class="session-expired-banner" role="alert">
         Your session has expired. Please
-        <button class="link-btn" (click)="auth.sessionExpired.set(false); showLogin.set(true)">sign in again</button>
+        <button class="link-btn" (click)="auth.sessionExpired.set(false); router.navigate(['/login'])">sign in again</button>
         to create quotes.
       </div>
-    }
-
-    <!-- Login prompt — shown when unauthenticated user clicks New Quote -->
-    @if (showLogin()) {
-      <app-login (loggedIn)="showLogin.set(false); showForm.set(true)" />
-    }
-
-    <!-- Create quote form -->
-    @if (showForm() && auth.isLoggedIn()) {
-      <app-quote-form-signal
-        (created)="onQuoteCreated()"
-        (cancelled)="showForm.set(false)"
-      />
     }
 
     <!-- Search bar -->
@@ -79,10 +64,15 @@
     @if (isSearchMode() && authorStats().length > 0) {
       <div class="author-breakdown">
         @for (stat of authorStats(); track stat.author) {
-          <span class="author-chip" [style.background]="authorColor(stat.author)">
+          <button
+            class="author-chip"
+            [style.background]="authorColor(stat.author)"
+            (click)="filterByAuthor(stat.author)"
+            [attr.aria-label]="'Filter by ' + stat.author"
+          >
             {{ stat.author }}
             <span class="chip-count">{{ stat.count }}</span>
-          </span>
+          </button>
         }
       </div>
     }
@@ -128,7 +118,6 @@
         @for (quote of visibleQuotes(); track quote.id) {
           <li
             class="quote-card"
-            [class.selected]="selectedId() === quote.id"
             [style.--accent]="authorColor(quote.author)"
             (click)="selectQuote(quote.id)"
             (keydown.enter)="selectQuote(quote.id)"
@@ -184,41 +173,3 @@
   </main>
 </div>
 
-<!-- ── Detail panel — slides in when a quote is selected ── -->
-@if (selectedId() !== null) {
-  <div class="detail-overlay" (click)="closeDetail()"></div>
-  <aside class="detail-panel">
-    <button class="detail-close" (click)="closeDetail()">✕</button>
-
-    @if (detailLoading()) {
-      <div class="detail-skeleton">
-        <div class="ds-avatar"></div>
-        <div class="ds-lines">
-          <div class="ds-line short"></div>
-          <div class="ds-line long"></div>
-          <div class="ds-line long"></div>
-          <div class="ds-line medium"></div>
-        </div>
-      </div>
-    }
-
-    @if (detailError()) {
-      <div class="detail-error">
-        <p class="error-icon">⚠️</p>
-        <p class="error-msg">{{ detailError() }}</p>
-        <button class="retry-btn" (click)="selectQuote(selectedId()!)">Retry</button>
-      </div>
-    }
-
-    @if (!detailLoading() && !detailError() && detail()) {
-      <div class="detail-content">
-        <div class="detail-badge" [style.background]="authorColor(detail()!.author)">
-          {{ detail()!.author[0] }}
-        </div>
-        <h2 class="detail-author">{{ detail()!.author }}</h2>
-        <blockquote class="detail-text">"{{ detail()!.text }}"</blockquote>
-        <p class="detail-id">Quote #{{ detail()!.id }}</p>
-      </div>
-    }
-  </aside>
-}

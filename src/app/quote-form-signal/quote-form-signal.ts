@@ -1,4 +1,5 @@
-import { Component, computed, inject, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { QuotesService } from '../quotes.service';
 import { AuthService } from '../auth.service';
 
@@ -11,7 +12,11 @@ import { AuthService } from '../auth.service';
 })
 export class QuoteFormSignal {
   private quotesService = inject(QuotesService);
-  auth = inject(AuthService);
+  auth   = inject(AuthService);
+  router = inject(Router);
+
+  // true when used as a full route page, false when embedded in quotes list
+  isPage = input(false);
 
   created   = output<void>();
   cancelled = output<void>();
@@ -134,5 +139,6 @@ export class QuoteFormSignal {
     this.serverError.set(null);
     this.success.set(false);
     this.cancelled.emit();
+    this.router.navigate(['/quotes']);
   }
 }

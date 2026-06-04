@@ -1,0 +1,237 @@
+Day 16 — Routing, lazy loading, guards
+========================================
+
+## (1) Brief to the Agent
+
+Add Angular Router to my existing standalone Angular 21 app against my
+real Week-1 Quotes API.
+Real API endpoints:
+  List:   GET http://localhost:5150/api/quotes/summary?page=1&size=10
+          Fields: id (number), author (string), authorInitials (string), shortText (string)
+
+  Detail: GET http://localhost:5150/api/quotes/{id}
+          Fields: id (number), author (string), text (string)
+          The route param is the quote's id field — a number
+What I want:
+- Lazy-loaded routes so the detail and create pages only download when needed
+- A functional auth guard that redirects to /login if the user is not logged in
+  and passes the intended URL as a returnUrl query param so login can redirect back
+- Route params — detail page reads :id from the URL and fetches the full quote
+- View transitions between routes using withViewTransitions()
+- A QuoteDetail standalone component that handles three states:
+    loading — shows skeleton while GET /api/quotes/{id} is in flight
+    error   — shows friendly message from AppError interceptor
+    data    — shows full quote with author and text fields
+- Guard the /quotes/create route — requires login
+- If :id is not a valid number (e.g. /quotes/abc), show a clear error
+  without making an API call
+- Use withComponentInputBinding() so route params bind to input() signals
+Routes needed:
+  /               → redirect to /quotes
+  /quotes         → QuotesList (eager)
+  /quotes/create  → QuoteFormSignal (lazy, guarded)
+  /quotes/:id     → QuoteDetail (lazy)
+  /login          → Login (lazy)
+  **              → redirect to /quotes
+
+---
+
+## (2) Agent Output
+
+### src/app/app.routes.ts (original — before bug fix)
+import { Routes } from '@angular/router';
+import { authGuard } from './guards/auth.guard';
+
+export const routes: Routes = [
+  { path: '', redirectTo: 'quotes', pathMatch: 'full' },
+
+  {
+    path: 'quotes',
+    loadComponent: () =>
+      import('./quotes-list/quotes-list').then(m => m.QuotesList)
+  },
+
+  // Bug: quotes/:id was listed BEFORE quotes/create.
+  // Angular matched /quotes/create as id='create' and loaded QuoteDetail.
+  // QuoteDetail tried Number('create') = NaN, showed "Invalid quote ID".
+  {
+    path: 'quotes/:id',
+    loadComponent: () =>
+      import('./quote-detail/quote-detail').then(m => m.QuoteDetail)
+  },
+
+  {
+    path: 'quotes/create',
+    loadComponent: () =>
+      import('./quote-form-signal/quote-form-signal').then(m => m.QuoteFormSignal),
+    canActivate: [authGuard]
+  },
+
+  {
+    path: 'login',
+    loadComponent: () => import('./login/login').then(m => m.Login),
+    data: { isPage: true }
+  },
+
+  { path: '**', redirectTo: 'quotes' }
+];
+
+### src/app/guards/auth.guard.ts
+import { inject } from '@angular/core';
+import { CanActivateFn, Router } from '@angular/router';
+import { AuthService } from '../auth.service';
+
+export const authGuard: CanActivateFn = (route, state) => {
+  const auth   = inject(AuthService);
+  const router = inject(Router);
+
+  if (auth.isLoggedIn()) return true;
+
+  return router.createUrlTree(['/login'], {
+    queryParams: { returnUrl: state.url }
+  });
+};
+
+### src/app/quote-detail/quote-detail.ts
+import { Component, inject, input, OnInit, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { QuoteDetail as QuoteDetailModel, QuotesService } from '../quotes.service';
+
+@Component({
+  selector: 'app-quote-detail',
+  standalone: true,
+  imports: [],
+  templateUrl: './quote-detail.html',
+  styleUrl: './quote-detail.css'
+})
+export class QuoteDetail implements OnInit {
+  private quotesService = inject(QuotesService);
+  private router        = inject(Router);
+
+  // withComponentInputBinding() binds :id from the URL directly to this input
+  id = input<string>('');
+
+  detail  = signal<QuoteDetailModel | null>(null);
+  loading = signal(true);
+  error   = signal<string | null>(null);
+
+  ngOnInit() {
+    const idParam = this.id();
+
+    if (!idParam || !/^\d+$/.test(idParam)) {
+      this.error.set('Invalid quote ID in the URL.');
+      this.loading.set(false);
+      return;
+    }
+
+    this.quotesService.getById(Number(idParam)).subscribe({
+      next: quote => { this.detail.set(quote); this.loading.set(false); },
+      error: err  => { this.error.set(err?.message ?? 'Could not load quote.'); this.loading.set(false); }
+    });
+  }
+
+  goBack() { this.router.navigate(['/quotes']); }
+}
+
+### src/app/app.config.ts
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideZonelessChangeDetection(),
+    provideRouter(routes, withViewTransitions(), withComponentInputBinding()),
+    provideHttpClient(withInterceptors([
+      authInterceptor,
+      retryInterceptor,
+      errorMappingInterceptor
+    ]))
+  ]
+};
+
+---
+
+## (3) Verification Log
+
+States exercised:
+
+  Guard redirect    — cleared token, visited /quotes/create in URL bar
+                      redirected to /login?returnUrl=%2Fquotes%2Fcreate
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece1/gaurd-redirect.png ✅
+
+  Guard pass        — logged in, visited /quotes/create
+                      create form loaded at correct URL, no redirect
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece1/gaurd-pass.png ✅
+
+  Lazy chunk        — opened Network tab, clicked quote card
+                      new chunk-XXXXXXXX.js file downloaded on first navigation
+                      confirms QuoteDetail is lazy-loaded, not in the main bundle
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece1/lazy-loading.png ✅
+
+  Invalid param     — visited /quotes/abc
+                      regex !/^\d+$/ catches non-numeric id
+                      shows "Invalid quote ID in the URL." without any API call
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece1/invalid-param.png ✅
+
+  Non-existent id   — visited /quotes/99999
+                      API returns 404, errorMappingInterceptor maps to
+                      "The requested item was not found."
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece1/non-existentId.png ✅
+
+  Detail loads      — clicked real quote card, URL changed to /quotes/5
+                      full text from GET /api/quotes/{id} rendered correctly
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece1/detail-loads.png ✅
+
+  View transition   — navigation between /quotes and /quotes/:id
+                      smooth fade transition visible in browser when clicking
+                      quote cards — cannot be captured in a static screenshot.
+                      Enabled via withViewTransitions() in provideRouter().
+
+  Return URL        — after guard redirects to /login?returnUrl=/quotes/create
+                      logged in → navigated back to /quotes/create exactly
+                      screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece1/returnURL.png ✅
+
+Bug caught and fixed — route order: create listed after :id
+
+  The agent listed routes in this order:
+    { path: 'quotes/:id', ... }     ← matched first
+    { path: 'quotes/create', ... }  ← never reached
+
+  When visiting /quotes/create, Angular matched it against quotes/:id
+  with id='create'. QuoteDetail loaded, called Number('create') = NaN,
+  and the guard check showed "Invalid quote ID in the URL." instead of
+  loading the create form. The auth guard never fired.
+
+  Fixed: moved quotes/create BEFORE quotes/:id in the routes array.
+  More specific routes must always come before parameterized routes.
+  After fix: /quotes/create correctly loads QuoteFormSignal with auth guard.
+
+  Evidence:
+  - The bug is documented in the agent output code (Part 2) with the comment:
+    "// Bug: quotes/:id was listed BEFORE quotes/create."
+    This is the original code as the agent generated it — wrong order preserved
+    verbatim so the bug is visible in the submission itself.
+  - gaurd-pass.png proves the fix works — /quotes/create loads the create
+    form correctly after the routes were reordered.
+
+What would break if API contract changed:
+
+  - GET /api/quotes/{id} renamed to /api/quotes/detail/{id}
+      → 404 on every quote click, errorMappingInterceptor shows
+        "The requested item was not found."
+
+  - id field renamed to quoteId in the detail response
+      → TypeScript catches at compile time since QuoteDetail interface is typed
+      → Build fails before reaching production
+
+  - id field changed from number to UUID string
+      → Regex !/^\d+$/ rejects all UUIDs as "Invalid quote ID"
+      → No quotes would ever open — fix by updating the regex
+
+  - text field renamed to content or quote
+      → QuoteDetail interface typed — TypeScript build error
+      → detail page renders blank if manually patched without type update
+
+  - 404 response body changed from empty to ProblemDetails
+      → errorMappingInterceptor now uses body.detail as the message
+      → More specific error shown instead of generic "not found"
+
+CI run:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/actions/runs/26936729488/job/79468155006

@@ -1,11 +1,43 @@
 /* Reuses same visual style as reactive form — only badge is different */
+.form-full-page {
+  min-height: 100vh !important;
+  align-items: center !important;
+  border-radius: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.form-page {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 14px;
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
 .form-panel {
   background: white;
-  border-radius: 14px;
-  padding: 1.75rem;
-  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.12);
-  margin-bottom: 1.25rem;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  width: 100%;
+  max-width: 540px;
 }
+
+.nav-back {
+  background: none;
+  border: none;
+  color: #667eea;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 1rem;
+  display: block;
+  transition: opacity 0.15s;
+}
+
+.nav-back:hover { opacity: 0.7; }
 
 .form-top {
   display: flex;
