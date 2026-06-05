@@ -1,6 +1,7 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { tap } from 'rxjs/operators';
+import { environment } from '../environments/environment';
 
 interface LoginResponse {
   access_token:  string;
@@ -11,7 +12,7 @@ interface LoginResponse {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private http    = inject(HttpClient);
-  private baseUrl = 'http://localhost:5150';
+  private baseUrl = environment.apiUrl;
 
   // Signal — true when a token exists in localStorage
   isLoggedIn      = signal(!!localStorage.getItem('access_token'));

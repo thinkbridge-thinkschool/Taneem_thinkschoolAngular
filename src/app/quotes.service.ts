@@ -1,5 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../environments/environment';
 
 export interface Quote {
   id: number;
@@ -18,7 +19,7 @@ export interface QuoteDetail {
 @Injectable({ providedIn: 'root' })
 export class QuotesService {
   private http = inject(HttpClient);
-  private baseUrl = 'http://localhost:5150';
+  private baseUrl = environment.apiUrl;
 
   getSummary(page: number, size: number) {
     return this.http.get<Quote[]>(
