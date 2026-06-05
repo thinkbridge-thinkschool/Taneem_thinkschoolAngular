@@ -215,7 +215,7 @@ States exercised:
   Search            — typed "Aristotle" — author chips shown with count
                       results filtered from allQuotes in store, not from API
                       screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/day16/screenshots/day16piece2/search-works.png ✅
-
+ 
 Bug caught and fixed — agent did not bust allQuotes cache after creating a quote
 
   The agent's QuotesStore.bustCache() only cleared browseLoaded and reset page:
