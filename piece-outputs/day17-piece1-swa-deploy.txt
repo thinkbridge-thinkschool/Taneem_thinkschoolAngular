@@ -1,0 +1,209 @@
+Day 17 — Deploy to Azure Static Web Apps
+==========================================
+
+## (1) Brief to the Agent
+Deploy my Angular 21 standalone app to Azure Static Web Apps against my
+real Week-1 Quotes API with no stored client secrets.
+Real API base URL (production): https://day-1.bluestone-ca3d52ab.eastus.azurecontainerapps.io
+Real endpoints:
+  GET  /api/quotes/summary?page=1&size=10  → [{ id, author, authorInitials, shortText }]
+  GET  /api/quotes/{id}                    → { id, author, text }
+  POST /api/auth/login                     → { access_token, refresh_token, expires_in }
+  POST /api/quotes                         → creates a quote (requires Bearer token)
+Auth model:
+  - Angular app uses JWT Bearer tokens obtained from /api/auth/login
+  - Token stored in localStorage — no client secret in code or repo
+  - Backend uses Azure Managed Identity (UserAssigned) to access Azure Container Registry
+  - No connection strings or API keys committed to source code
+  - ConnectionStrings__Default stored as Azure Container App secret (not env var)
+What I want:
+  - Environment files — environment.ts (localhost) and environment.prod.ts (Azure URL)
+  - angular.json fileReplacements to swap environment on production build
+  - staticwebapp.config.json for SPA routing fallback
+  - robots.txt so Lighthouse Best Practices passes
+  - GitHub Actions workflow — CI (install, test, build) on all branches,
+    deploy to SWA only on main branch push
+  - CORS updated on backend to allow azurestaticapps.net origin
+  - Lighthouse ≥ 95 on all categories
+
+---
+
+## (2) Agent Output
+
+### src/environments/environment.ts
+export const environment = {
+  production: false,
+  apiUrl: 'http://localhost:5150'
+};
+
+### src/environments/environment.prod.ts
+export const environment = {
+  production: true,
+  apiUrl: 'https://day-1.bluestone-ca3d52ab.eastus.azurecontainerapps.io'
+};
+
+### angular.json — fileReplacements added to production config
+"production": {
+  "fileReplacements": [
+    {
+      "replace": "src/environments/environment.ts",
+      "with": "src/environments/environment.prod.ts"
+    }
+  ],
+  ...
+}
+
+### public/staticwebapp.config.json
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/api/*", "/*.{css,scss,js,png,jpg,svg,ico,woff,woff2,txt}"]
+  },
+  "mimeTypes": {
+    ".json": "application/json"
+  }
+}
+
+### public/robots.txt
+User-agent: *
+Allow: /
+
+### .github/workflows/azure-static-web-apps.yml
+name: CI and Deploy to Azure Static Web Apps
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+jobs:
+  build_test_deploy:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Test
+        run: npm test -- --watch=false
+      - name: Build
+        run: npm run build
+      - name: Deploy to Azure Static Web Apps
+        if: github.ref == 'refs/heads/main'
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "dist/quotes-ui/browser"
+          output_location: ""
+          skip_app_build: true
+
+### Backend CORS update (Program.cs)
+  policy.SetIsOriginAllowed(origin => {
+      var host = new Uri(origin).Host;
+      return host == "localhost" || host.EndsWith("azurestaticapps.net");
+  })
+
+---
+
+## (3) Verification Log
+
+Live URL: https://ashy-forest-06a5d6f10.7.azurestaticapps.net
+
+Test credentials (to create quotes via + New Quote):
+  Email:    test@example.com
+  Password: Password123!
+
+Lighthouse scores (run on live HTTPS URL):
+  Performance:     99 ✅
+  Accessibility:  100 ✅
+  Best Practices: 100 ✅
+  SEO:            100 ✅
+  All ≥ 95 ✅
+  screenshot: lighthouse.png
+
+States exercised:
+
+  Loading        — page loads, skeleton cards visible, then quotes appear ✅
+  Quotes list    — Page 1 of 52 shown, 10 quotes on this page ✅
+  Detail route   — clicked quote → navigated to /quotes/{id} → full text loaded ✅
+  Login          — clicked + New Quote → login form → logged in → create form ✅
+  Error (CORS)   — before CORS fix, API calls blocked by browser — fixed by
+                   allowing azurestaticapps.net origin in backend CORS policy ✅
+  No secret      — Network tab shows Authorization: Bearer {jwt} — no API key
+                   or client secret in any header or code ✅
+                   screenshot: day17-network-api.png
+
+Auth — Managed Identity, no client secret:
+
+  Note on limitations:
+  Custom domain: Azure SWA Free tier supports custom domains but requires
+  owning a domain. No domain was available for this submission — app is live
+  at the default azurestaticapps.net URL.
+
+  MI linked backend: Azure SWA Free tier does not support linking Container
+  Apps as a backend with Managed Identity — requires Standard plan (~$9/month)
+  which the student subscription cannot support.
+
+  What IS implemented (no secret, no hardcoded credentials):
+  - Angular app authenticates via JWT Bearer tokens from POST /api/auth/login
+  - Token stored in browser localStorage — no client secret anywhere in code
+  - Backend ConnectionStrings__Default stored as Azure Container App secret
+    (not in source code, not in appsettings.json, not as plain env var)
+  - Backend uses UserAssigned Managed Identity to pull images from
+    Azure Container Registry — no registry password in code
+  - AZURE_STATIC_WEB_APPS_API_TOKEN stored only in GitHub repository secret
+    (never committed to repo)
+
+Bug caught and fixed — robots.txt served as index.html:
+
+  The staticwebapp.config.json navigationFallback was rewriting ALL unmatched
+  paths to index.html, including /robots.txt. Lighthouse Best Practices flagged
+  this as "robots.txt is not valid" and parsed the HTML as robots directives,
+  finding 15 syntax errors.
+
+  Code evidence — original exclude pattern (the bug):
+    "exclude": ["/api/*", "/*.{css,scss,js,png,jpg,svg,ico,woff,woff2}"]
+    → .txt not in the list → /robots.txt fell through to navigationFallback
+    → SWA served index.html instead of a robots.txt file
+    → Lighthouse parsed the HTML as robots directives → 15 syntax errors
+
+  Code evidence — fix (commit 5341022):
+    1. Added .txt to exclude:
+       "exclude": ["/api/*", "/*.{css,scss,js,png,jpg,svg,ico,woff,woff2,txt}"]
+    2. Created public/robots.txt:
+       User-agent: *
+       Allow: /
+
+  Commit: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/commit/5341022
+  Before fix: Best Practices = 91 (observed in first production Lighthouse run)
+  After fix:  Best Practices = 100 — screenshot: day17-lighthouse.png
+
+What would break if API contract changed:
+
+  - /api/quotes/summary renamed or moved
+      → Angular app shows error state immediately, no data loads
+      → environment.prod.ts has the hardcoded path — must be updated
+
+  - id field removed from summary response
+      → @for track quote.id breaks, DOM identity lost, list re-renders on every update
+
+  - access_token renamed in login response (e.g. to token)
+      → AuthService reads access_token — login appears to succeed but token
+         is undefined, all subsequent API calls return 401
+
+  - Backend CORS policy tightened (azurestaticapps.net removed)
+      → All API calls from SWA blocked by browser, app shows error on load
+
+  - Azure Container App URL changes
+      → environment.prod.ts still points to old URL, all API calls fail
+      → Fix: update environment.prod.ts and redeploy
+
+
