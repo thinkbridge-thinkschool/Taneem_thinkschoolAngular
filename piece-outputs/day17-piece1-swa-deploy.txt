@@ -127,19 +127,36 @@ Lighthouse scores (run on live HTTPS URL):
   Best Practices: 100 ✅
   SEO:            100 ✅
   All ≥ 95 ✅
-  screenshot: lighthouse.png
+  screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/lighthouse.png
 
 States exercised:
 
   Loading        — page loads, skeleton cards visible, then quotes appear ✅
+                   screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/swa-loading-page.png
+
   Quotes list    — Page 1 of 52 shown, 10 quotes on this page ✅
+                   screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/live-url.png
+
   Detail route   — clicked quote → navigated to /quotes/{id} → full text loaded ✅
+                   screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/swa-detail-loads.png
+
   Login          — clicked + New Quote → login form → logged in → create form ✅
+                   screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/swa-quote-form.png
+
   Error (CORS)   — before CORS fix, API calls blocked by browser — fixed by
-                   allowing azurestaticapps.net origin in backend CORS policy ✅
+                   allowing azurestaticapps.net origin in backend CORS policy
+                   Code evidence — Program.cs updated from:
+                     host == "localhost"
+                   to:
+                     host == "localhost" || host.EndsWith("azurestaticapps.net")
+                   network-api.png shows Origin: https://ashy-forest-06a5d6f10.7.azurestaticapps.net
+                   in request headers — proves CORS is passing ✅
+                   screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/network-api.png
+
+
   No secret      — Network tab shows Authorization: Bearer {jwt} — no API key
                    or client secret in any header or code ✅
-                   screenshot: day17-network-api.png
+                   screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/network-api.png
 
 Auth — Managed Identity, no client secret:
 
@@ -184,7 +201,7 @@ Bug caught and fixed — robots.txt served as index.html:
 
   Commit: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/commit/5341022
   Before fix: Best Practices = 91 (observed in first production Lighthouse run)
-  After fix:  Best Practices = 100 — screenshot: day17-lighthouse.png
+  After fix:  Best Practices = 100 — screenshot: https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/blob/main/screenshots/day17/lighthouse.png
 
 What would break if API contract changed:
 
@@ -206,4 +223,8 @@ What would break if API contract changed:
       → environment.prod.ts still points to old URL, all API calls fail
       → Fix: update environment.prod.ts and redeploy
 
+Screenshot Link:
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/tree/main/screenshots/day17
 
+CI and CD :
+https://github.com/thinkbridge-thinkschool/Taneem_thinkschoolAngular/actions/runs/27017565736/job/79736525920
